@@ -1,4 +1,4 @@
-"""Draw the World News Brief v4 — "WORLD ON EDGE." magazine cover.
+"""Draw the World News Brief v5 — "WORLD ON EDGE." magazine cover.
 
 819x1024 (4:5) deterministic rendering. SVG-first architecture: the
 whole poster is authored as SVG vector primitives (masthead, a
@@ -9,6 +9,15 @@ CairoSVG resolves) so wrapping and fitting are exact. No image model,
 no network, no timestamps, no randomness. No paper-grain pass: the
 base render already lands at ~199 KB from legitimate detail
 (coastlines, graticule, colour blocks), inside the 190-240 KB target.
+
+v5 is one precision refinement pass on the v4 base (kept intact):
+masthead ~10% tighter (padding, not type); the two arcs redrawn as
+stylized mid-latitude Pacific routes (Catmull-Rom, split at the
+antimeridian, never over the pole); the 02 chip moved to the
+upper-left Atlantic; radar rings on the three conflict pins;
+coordinate ticks on the hero panel; the invisible lime "06" fixed
+with a pill badge; body copy +20% with unified weight; the orphan
+lime "07" square replaced by a summary strip; illustrations unified.
 
 Palette (bold colour blocking, not thin lines): Warm Editorial Paper
 #F2F0E8, Deep Ink #17191C, Electric Cobalt #202BEB, Signal Red
@@ -151,29 +160,55 @@ def split_ring(ring):
     return parts
 
 
-def _vec(lat, lon):
-    la, lo = math.radians(lat), math.radians(lon)
-    return (math.cos(la) * math.cos(lo), math.cos(la) * math.sin(lo),
-            math.sin(la))
+def catmull_rom(points, samples=24):
+    """Smooth curve through (lat, lon) points; lon may be unwrapped
+    past ±180 so a Pacific route crosses the antimeridian cleanly."""
+    pts = [points[0]] + list(points) + [points[-1]]
+    out = []
+    for i in range(len(pts) - 3):
+        p0, p1, p2, p3 = pts[i], pts[i + 1], pts[i + 2], pts[i + 3]
+        for j in range(samples):
+            t = j / samples
+            t2, t3 = t * t, t * t * t
+            lat = 0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t
+                         + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2
+                         + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3)
+            lon = 0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t
+                         + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2
+                         + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3)
+            out.append((lat, lon))
+    out.append(points[-1])
+    return out
 
 
-def great_circle(a, b, n=120):
-    """True great-circle route between two (lat, lon) points, sampled
-    with slerp. A Bezier chord would wrongly cut across the Atlantic
-    and Africa for US–Singapore; the real route goes over the Arctic."""
-    va, vb = _vec(*a), _vec(*b)
-    dot = max(-1.0, min(1.0, sum(x * y for x, y in zip(va, vb))))
-    omega = math.acos(dot)
-    pts = []
-    for i in range(n + 1):
-        t = i / n
-        s = math.sin(omega)
-        v = tuple((math.sin((1 - t) * omega) * x + math.sin(t * omega) * y)
-                  / s for x, y in zip(va, vb))
-        lat = math.degrees(math.asin(max(-1.0, min(1.0, v[2]))))
-        lon = math.degrees(math.atan2(v[1], v[0]))
-        pts.append((lat, lon))
-    return pts
+def pacific_route(waypoints, anchor, proj, w, h, warnings, num):
+    """Stylized Pacific connection arc: Catmull-Rom through the
+    waypoints, wrapped at the antimeridian and truncated at ±176 so
+    both visible segments stay inside the panel with margin.
+    Returns (segments, ends, anchor_pt) in canvas coordinates."""
+    sampled = catmull_rom(waypoints)
+    segments, cur = [], []
+    for lat, lon in sampled:
+        wl = ((lon + 180.0) % 360.0) - 180.0
+        if abs(wl) > 176.0:
+            if len(cur) >= 2:
+                segments.append(cur)
+            cur = []
+            continue
+        cur.append((lat, wl))
+    if len(cur) >= 2:
+        segments.append(cur)
+    proj_segments = []
+    for seg in segments:
+        pts = [proj.project(lon, lat) for lat, lon in seg]
+        for rx, ry in pts:
+            if not (10 <= rx <= w - 10 and 10 <= ry <= h - 10):
+                warnings.append(f"arc {num:02d} point near frame edge "
+                                f"({rx:.0f}, {ry:.0f})")
+        proj_segments.append(pts)
+    ends = (proj_segments[0][0], proj_segments[-1][-1])
+    ax, ay = proj.project(anchor[1], anchor[0])
+    return proj_segments, ends, (ax, ay)
 
 
 def pts_str(pts):
@@ -200,11 +235,19 @@ MARKERS = [
     (6, "LONDON", 51.51, -0.13, "badge", LIME),
     (7, "TOKYO", 35.68, 139.69, "badge", LIME),
 ]
-# Arcs: (number, chip label, lat/lon A, lat/lon B, colour). True
-# great circles (slerp), not Bezier chords.
+# Arcs: (number, chip label, waypoints, chip anchor, colour).
+# Stylized Pacific connection arcs — NOT great circles over the pole
+# and NOT attack trajectories: smooth Catmull-Rom routes through
+# mid-latitude Pacific waypoints (lon unwrapped so the route crosses
+# the antimeridian, where it is split into two visible segments).
+# 04 Shenzhen <-> Vancouver, 05 San Francisco <-> Singapore.
 ARCS = [
-    (4, "CHINA–CANADA", (22.55, 114.06), (45.42, -75.70), COBALT),
-    (5, "US–SINGAPORE", (38.90, -77.04), (1.35, 103.82), LIME),
+    (4, "CHINA–CANADA",
+     [(22.55, 114.06), (28, 140), (34, 168), (38, 180), (41, 200),
+      (45, 220), (49.28, 236.88)], (33, 160), COBALT),
+    (5, "US–SINGAPORE",
+     [(37.77, -122.42), (32, -150), (26, -180), (18, -210),
+      (10, -235), (1.35, -256.18)], (30, -150), LIME),
 ]
 # Ocean labels: (text, lon, lat) — placed by projection, centred.
 OCEAN_LABELS = [
@@ -215,9 +258,11 @@ OCEAN_LABELS = [
 ]
 
 
-def place_chips(anchors, avoid, w, h, forbidden=()):
+def place_chips(anchors, avoid, w, h, forbidden=(), preferred=None):
     """Greedy chip placement around anchor points (map-canvas coords).
-    Returns {num: (rect, leader_end)}."""
+    preferred maps a chip number to a target centre the chip is pulled
+    toward (e.g. 02 into the clean upper-left Atlantic). Returns
+    {num: (rect, leader_end)}."""
     chip_font = font(SANS_B, 12)
     placed = {}
     labels = {m[0]: m[1] for m in MARKERS}
@@ -255,6 +300,10 @@ def place_chips(anchors, avoid, w, h, forbidden=()):
                 if math.hypot(ax - cx, ay - cy) < 18:
                     score += 5000
             score += math.hypot(dx + cw / 2, dy + ch / 2) * 0.5
+            if preferred and num in preferred:
+                tx, ty = preferred[num]
+                score += math.hypot(rect[0] + cw / 2 - tx,
+                                    rect[1] + ch / 2 - ty) * 1.5
             if best is None or score < best[0]:
                 best = (score, rect)
         _, rect = best
@@ -288,6 +337,23 @@ def hero_map_svg(x0, y0, w, h):
         out.append(
             f'<line x1="{x1:.1f}" y1="{gy:.1f}" x2="{x2:.1f}" '
             f'y2="{gy:.1f}" stroke="{GRAT_DARK}" stroke-width="1"/>')
+    # Coordinate ticks on the panel edges (every 30 degrees).
+    for lon in range(-180, 181, 30):
+        tx, _ = proj.project(lon, 0)
+        out.append(
+            f'<line x1="{tx:.1f}" y1="0" x2="{tx:.1f}" y2="6" '
+            f'stroke="{GRAT_DARK}" stroke-width="1.5"/>')
+        out.append(
+            f'<line x1="{tx:.1f}" y1="{h - 6:.1f}" x2="{tx:.1f}" '
+            f'y2="{h:.1f}" stroke="{GRAT_DARK}" stroke-width="1.5"/>')
+    for lat in range(-60, 91, 30):
+        _, ty = proj.project(0, lat)
+        out.append(
+            f'<line x1="0" y1="{ty:.1f}" x2="6" y2="{ty:.1f}" '
+            f'stroke="{GRAT_DARK}" stroke-width="1.5"/>')
+        out.append(
+            f'<line x1="{w - 6:.1f}" y1="{ty:.1f}" x2="{w:.1f}" '
+            f'y2="{ty:.1f}" stroke="{GRAT_DARK}" stroke-width="1.5"/>')
     # Real coastlines, split at the antimeridian.
     for poly in coast["polys"]:
         for part in split_ring(poly):
@@ -316,30 +382,28 @@ def hero_map_svg(x0, y0, w, h):
     cap_rect = (float(w) - cap_w - 12.0, h - 18.0,
                 float(w) - 8.0, h - 2.0)
     forbidden = (label_rects + [left_rect, right_rect, cap_rect])
-    # Arcs (true great circles) with a visible underlay: cobalt needs a
-    # paper halo on the ink panel, lime needs an ink halo on paper land.
+    # Arcs (stylized Pacific routes) with a visible underlay: cobalt
+    # needs a paper halo on the ink panel, lime needs an ink halo on
+    # paper land. Each route is split at the antimeridian into two
+    # visible segments; the chip anchor sits on the cleaner segment.
     anchors = {}
     avoid = []
-    for num, _label, a, b, color in ARCS:
-        route = [proj.project(lon, lat)
-                 for lat, lon in great_circle(a, b)]
-        for rx, ry in route:
-            if not (0 <= rx <= w and 0 <= ry <= h):
-                warnings.append(f"arc {num:02d} point outside frame "
-                                f"({rx:.0f}, {ry:.0f})")
-        ax, ay = route[0]
-        bx, by = route[-1]
-        mid = route[len(route) // 2]
+    for num, _label, waypoints, anchor, color in ARCS:
+        segments, ends, mid = pacific_route(waypoints, anchor, proj,
+                                            w, h, warnings, num)
+        (ax, ay), (bx, by) = ends
         anchors[num] = mid
         avoid += [(ax, ay), (bx, by)]
         under = PAPER if color == COBALT else INK
-        out.append(
-            f'<polyline points="{pts_str(route)}" fill="none" '
-            f'stroke="{under}" stroke-width="5" stroke-linecap="round"/>')
-        out.append(
-            f'<polyline points="{pts_str(route)}" fill="none" '
-            f'stroke="{color}" stroke-width="3" stroke-linecap="round" '
-            f'stroke-dasharray="10 7"/>')
+        for route in segments:
+            out.append(
+                f'<polyline points="{pts_str(route)}" fill="none" '
+                f'stroke="{under}" stroke-width="5" '
+                f'stroke-linecap="round"/>')
+            out.append(
+                f'<polyline points="{pts_str(route)}" fill="none" '
+                f'stroke="{color}" stroke-width="3" '
+                f'stroke-linecap="round" stroke-dasharray="10 7"/>')
         for ex, ey in ((ax, ay), (bx, by)):
             out.append(
                 f'<rect x="{ex - 5:.1f}" y="{ey - 5:.1f}" width="10" '
@@ -351,6 +415,15 @@ def hero_map_svg(x0, y0, w, h):
         anchors[num] = (px, py)
         avoid.append((px, py))
         if kind == "pin":
+            # Subtle concentric radar/signal rings on conflict points.
+            out.append(
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="27" '
+                f'fill="none" stroke="{RED}" stroke-width="1.5" '
+                f'opacity="0.18"/>')
+            out.append(
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="21" '
+                f'fill="none" stroke="{RED}" stroke-width="1.5" '
+                f'opacity="0.35"/>')
             out.append(
                 f'<circle cx="{px:.1f}" cy="{py:.1f}" r="15" fill="none" '
                 f'stroke="{RED}" stroke-width="2"/>')
@@ -361,7 +434,12 @@ def hero_map_svg(x0, y0, w, h):
             out.append(
                 f'<circle cx="{px:.1f}" cy="{py:.1f}" r="10" '
                 f'fill="{LIME}" stroke="{INK}" stroke-width="2"/>')
-    chips = place_chips(anchors, avoid, w, h, forbidden=forbidden)
+    # 02 KERCH STRAIT belongs in the clean upper-left Atlantic, left
+    # of the UK and over open ocean — never over Africa, never on the
+    # ATLANTIC OCEAN label or the 06 LONDON badge.
+    pref = {2: proj.project(-20, 58)}
+    chips = place_chips(anchors, avoid, w, h, forbidden=forbidden,
+                        preferred=pref)
     color_of = {m[0]: m[5] for m in MARKERS}
     color_of.update({a[0]: a[4] for a in ARCS})
     name_of = {m[0]: m[1] for m in MARKERS}
@@ -439,14 +517,14 @@ def illo_bridge():
 <rect x="0" y="0" width="100" height="100" fill="{INK}"/>
 <rect x="20" y="26" width="6" height="46" fill="{PAPER}"/>
 <rect x="74" y="26" width="6" height="46" fill="{PAPER}"/>
-<line x1="23" y1="26" x2="10" y2="50" stroke="{PAPER}" stroke-width="1.5"/>
-<line x1="23" y1="26" x2="40" y2="50" stroke="{PAPER}" stroke-width="1.5"/>
-<line x1="77" y1="26" x2="60" y2="50" stroke="{PAPER}" stroke-width="1.5"/>
-<line x1="77" y1="26" x2="90" y2="50" stroke="{PAPER}" stroke-width="1.5"/>
+<line x1="23" y1="26" x2="10" y2="50" stroke="{PAPER}" stroke-width="2"/>
+<line x1="23" y1="26" x2="40" y2="50" stroke="{PAPER}" stroke-width="2"/>
+<line x1="77" y1="26" x2="60" y2="50" stroke="{PAPER}" stroke-width="2"/>
+<line x1="77" y1="26" x2="90" y2="50" stroke="{PAPER}" stroke-width="2"/>
 <rect x="8" y="50" width="34" height="6" fill="{PAPER}"/>
 <rect x="58" y="50" width="34" height="6" fill="{PAPER}"/>
 <polyline points="42,50 46,58 50,50 54,58 58,50" fill="none"
- stroke="{RED}" stroke-width="3"/>
+ stroke="{RED}" stroke-width="4"/>
 <polyline points="8,82 20,77 32,82 44,77 56,82 68,77 80,82 92,77"
  fill="none" stroke="{PAPER}" stroke-width="2"/>
 <polyline points="8,91 20,86 32,91 44,86 56,91 68,86 80,91 92,86"
@@ -531,17 +609,17 @@ def illo_health():
 <rect x="0" y="0" width="100" height="100" fill="{INK}"/>
 <rect x="24" y="14" width="14" height="38" fill="{PAPER}"/>
 <rect x="13" y="25" width="36" height="14" fill="{PAPER}"/>
-<rect x="52" y="58" width="17" height="30" fill="{PAPER}"/>
-<rect x="73" y="58" width="17" height="30" fill="{PAPER}"/>
-<polyline points="71,58 68,66 72,72 68,80 71,88" fill="none"
- stroke="{RED}" stroke-width="3"/>
+<rect x="48" y="58" width="17" height="30" fill="{PAPER}"/>
+<rect x="78" y="58" width="17" height="30" fill="{PAPER}"/>
+<polyline points="73,58 69,66 74,72 69,80 73,88" fill="none"
+ stroke="{RED}" stroke-width="4"/>
 <g stroke="{INK}" stroke-width="2">
-<line x1="55" y1="65" x2="66" y2="65"/>
-<line x1="55" y1="72" x2="66" y2="72"/>
-<line x1="55" y1="79" x2="66" y2="79"/>
-<line x1="76" y1="65" x2="87" y2="65"/>
-<line x1="76" y1="72" x2="87" y2="72"/>
-<line x1="76" y1="79" x2="87" y2="79"/>
+<line x1="51" y1="65" x2="62" y2="65"/>
+<line x1="51" y1="72" x2="62" y2="72"/>
+<line x1="51" y1="79" x2="62" y2="79"/>
+<line x1="81" y1="65" x2="92" y2="65"/>
+<line x1="81" y1="72" x2="92" y2="72"/>
+<line x1="81" y1="79" x2="92" y2="79"/>
 </g>
 <circle cx="31" cy="66" r="4" fill="{RED}"/>"""
 
@@ -555,6 +633,7 @@ def illo_oil():
 <line x1="18" y1="22" x2="38" y2="36"/>
 <line x1="82" y1="22" x2="62" y2="36"/>
 <line x1="84" y1="68" x2="70" y2="62"/>
+<line x1="16" y1="68" x2="30" y2="66"/>
 </g>
 <path d="M30 44 A20 13 0 0 1 70 44 Z" fill="{PAPER}"/>
 <rect x="30" y="44" width="40" height="36" fill="{PAPER}"/>
@@ -564,6 +643,7 @@ def illo_oil():
 <circle cx="18" cy="22" r="5" fill="{LIME}"/>
 <circle cx="82" cy="22" r="5" fill="{PAPER}"/>
 <circle cx="84" cy="68" r="5" fill="{PAPER}"/>
+<circle cx="16" cy="68" r="5" fill="{LIME}"/>
 <rect x="38" y="54" width="24" height="4" fill="{COBALT}"/>
 <rect x="38" y="64" width="24" height="4" fill="{COBALT}"/>"""
 
@@ -617,22 +697,22 @@ def module_wide(x, y, w, h, num, tag, color, head, body, warnings):
     text_w = w - h - 14
     pill, _ = tag_pill(x0, y + 2, tag, color)
     out.append(pill)
-    head_fnt = font(SANS_B, 20)
+    head_fnt = font(SANS_B, 21)
     if tw(head, head_fnt) > text_w:
         warnings.append(f"module {num:02d} headline too wide")
     out.append(
-        f'<text x="{x0:.0f}" y="{y + 40:.0f}" '
+        f'<text x="{x0:.0f}" y="{y + 39:.0f}" '
         f'font-family="Liberation Sans" font-weight="bold" '
-        f'font-size="20" fill="{INK}">{esc(head)}</text>')
-    body_fnt = font(SANS, 14)
+        f'font-size="21" fill="{INK}">{esc(head)}</text>')
+    body_fnt = font(SANS, 17)
     lines = wrap(body, body_fnt, text_w)
     if len(lines) > 2:
         warnings.append(f"module {num:02d} body wraps to "
                         f"{len(lines)} lines (max 2)")
     for i, line in enumerate(lines[:2]):
         out.append(
-            f'<text x="{x0:.0f}" y="{y + 58 + i * 17:.0f}" '
-            f'font-family="Liberation Sans" font-size="14" '
+            f'<text x="{x0:.0f}" y="{y + 57 + i * 20:.0f}" '
+            f'font-family="Liberation Sans" font-size="17" '
             f'fill="{INK}">{esc(line)}</text>')
     return "\n".join(out)
 
@@ -646,55 +726,70 @@ def module_narrow(x, y, w, h, num, color, head, body, warnings):
                f'scale(0.64)">{ILLOS[num]()}</g>')
     x0 = x + 72
     text_w = w - 72
-    head_fnt = font(SANS_B, 14)
+    head_fnt = font(SANS_B, 15)
     lines = wrap(head, head_fnt, text_w)
     if len(lines) > 2:
         warnings.append(f"module {num:02d} headline wraps to "
                         f"{len(lines)} lines (max 2)")
     for i, line in enumerate(lines[:2]):
-        ly = y + 18 + i * 17
+        ly = y + 17 + i * 18
         if i == 0 and line.startswith(f"{num:02d}"):
-            pre, rest = line[:5], line[5:]
+            # Number in a pill badge of its category colour: the v4
+            # lime "06" on paper was invisible; the pill keeps the
+            # colour code with razor-sharp contrast for every number.
+            num_txt = f"{num:02d}"
+            num_w = tw(num_txt, head_fnt)
+            num_fill = INK if color == LIME else PAPER
             out.append(
-                f'<text x="{x0:.0f}" y="{ly:.0f}" '
+                f'<rect x="{x0 - 2:.0f}" y="{ly - 13:.0f}" '
+                f'width="{num_w + 10:.0f}" height="17" rx="4" '
+                f'fill="{color}"/>')
+            out.append(
+                f'<text x="{x0 + 3:.0f}" y="{ly:.0f}" '
                 f'font-family="Liberation Sans" font-weight="bold" '
-                f'font-size="14"><tspan fill="{color}">{esc(pre)}'
-                f'</tspan><tspan fill="{INK}">{esc(rest)}</tspan>'
-                f'</text>')
+                f'font-size="15" fill="{num_fill}">'
+                f'{esc(num_txt)}</text>')
+            out.append(
+                f'<text x="{x0 + num_w + 10:.0f}" y="{ly:.0f}" '
+                f'font-family="Liberation Sans" font-weight="bold" '
+                f'font-size="15" fill="{INK}">'
+                f'{esc(line[2:])}</text>')
         else:
             out.append(
                 f'<text x="{x0:.0f}" y="{ly:.0f}" '
                 f'font-family="Liberation Sans" font-weight="bold" '
-                f'font-size="14" fill="{INK}">{esc(line)}</text>')
-    body_fnt = font(SANS, 13)
+                f'font-size="15" fill="{INK}">{esc(line)}</text>')
+    body_fnt = font(SANS, 16)
     body_lines = wrap(body, body_fnt, text_w)
     if len(body_lines) > 3:
         warnings.append(f"module {num:02d} body wraps to "
                         f"{len(body_lines)} lines (max 3)")
-    by = y + 18 + len(lines[:2]) * 17 + 15
+    by = y + 17 + len(lines[:2]) * 18 + 12
     for i, line in enumerate(body_lines[:3]):
         out.append(
-            f'<text x="{x0:.0f}" y="{by + i * 15:.0f}" '
-            f'font-family="Liberation Sans" font-size="13" '
+            f'<text x="{x0:.0f}" y="{by + i * 17:.0f}" '
+            f'font-family="Liberation Sans" font-size="16" '
             f'fill="{INK}">{esc(line)}</text>')
     return "\n".join(out)
 
 
 def module_full(x, y, w, h, num, tag, color, head, body, warnings):
-    """Full-width closing module: wide layout plus a big lime block
-    with the story number as the asymmetric anchor."""
+    """Full-width closing module: wide layout plus a compact summary
+    strip in the space the orphan lime "07" square used to take."""
     out = [module_wide(x, y, w - 112, h, num, tag, color, head, body,
                        warnings)]
     bx = x + w - 100
     out.append(f'<rect x="{bx:.0f}" y="{y:.0f}" width="100" '
                f'height="{h:.0f}" fill="{LIME}"/>')
-    big = font(SANS_B, 44)
-    label = f"{num:02d}"
-    bw = tw(label, big)
-    out.append(
-        f'<text x="{bx + 50 - bw / 2:.0f}" y="{y + h / 2 + 15:.0f}" '
-        f'font-family="Liberation Sans" font-weight="bold" '
-        f'font-size="44" fill="{INK}">{label}</text>')
+    strip = ["7 STORIES", "5 REGIONS", "17 NOV 2026"]
+    fnt = font(SANS_B, 13)
+    for i, line in enumerate(strip):
+        lw = tw(line, fnt)
+        out.append(
+            f'<text x="{bx + 50 - lw / 2:.0f}" '
+            f'y="{y + 30 + i * 18:.0f}" font-family="Liberation Sans" '
+            f'font-weight="bold" font-size="13" '
+            f'fill="{INK}">{esc(line)}</text>')
     return "\n".join(out)
 
 
@@ -719,10 +814,10 @@ def main():
         f'<text x="787" y="44" text-anchor="end" '
         f'font-family="Liberation Sans" font-weight="bold" '
         f'font-size="19" fill="{INK}">TUESDAY EDITION</text>')
-    size = fit_size("ON EDGE.", SANS_B, 145, 755)
-    top1 = 62
+    size = fit_size("ON EDGE.", SANS_B, 140, 755)
+    top1 = 50
     base1 = top1 + round(size * 0.95)
-    top2 = top1 + size + 8
+    top2 = top1 + size + 4
     base2 = top2 + round(size * 0.95)
     parts.append(
         f'<text x="32" y="{base1}" font-family="Liberation Sans" '
@@ -737,20 +832,20 @@ def main():
         f'<text x="{32 + edge_w:.0f}" y="{base2}" '
         f'font-family="Liberation Sans" font-weight="bold" '
         f'font-size="{size}" fill="{RED}">.</text>')
-    sub_base = base2 + 30
+    sub_base = base2 + 24
     parts.append(f'<rect x="32" y="{sub_base - 14}" width="56" '
                  f'height="10" fill="{COBALT}"/>')
     parts.append(
         f'<text x="100" y="{sub_base}" font-family="Liberation Sans" '
         f'font-weight="bold" font-size="20" fill="{INK}">'
         f'7 STORIES THAT DEFINE THE DAY</text>')
-    rule_y = sub_base + 18
+    rule_y = sub_base + 14
     parts.append(f'<line x1="32" y1="{rule_y}" x2="787" y2="{rule_y}" '
                  f'stroke="{INK}" stroke-width="2"/>')
 
     # ---- hero: full-bleed ink panel with the Robinson world map
     hero_y = rule_y + 12
-    hero_h = 230
+    hero_h = 235
     parts.append(f'<rect x="0" y="{hero_y}" width="{W}" '
                  f'height="{hero_h}" fill="{INK}"/>')
     frag, map_warnings = hero_map_svg(0, 0, W, hero_h)
@@ -759,7 +854,7 @@ def main():
 
     # ---- seven story modules: four asymmetric rows, no boxes
     mod_y = hero_y + hero_h + 16
-    row_h, gap = 80, 8
+    row_h, gap = 87, 8
     rows = [
         [(1, "wide", 32, 470), (2, "narrow", 518, 269)],
         [(3, "narrow", 32, 269), (4, "wide", 317, 470)],
