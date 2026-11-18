@@ -1,18 +1,18 @@
 """Draw the World News Brief v2 — "Visual-First Executive Briefing".
 
-16:9 broadsheet, 1024x576, deterministic PIL rendering (no image model,
+3:2 broadsheet, 1024x683, deterministic PIL rendering (no image model,
 so every letter is exact): warm ivory page, navy + crimson accents, a
 serif masthead naming Tuesday 17 November 2026, a simplified editorial
-world map on the left with three numbered flashpoint pins, and five
-generously padded data cards on the right covering all six verified
-stories of the day. Output: entry.png, 1024x576, well under 1 MiB.
+world map on the left with three numbered flashpoint pins, and six
+data cards on the right covering all seven verified stories of the
+day. Output: entry.png, 1024x683, well under 1 MiB.
 """
 
 import math
 
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 1024, 576
+W, H = 1024, 683
 IVORY = (247, 244, 235)
 INK = (19, 41, 61)          # deep navy, also the main text ink
 NAVY = (19, 41, 61)
@@ -138,24 +138,26 @@ def draw_map(d, x0, y0, w, h):
 
 
 # ---------------------------------------------------------------- cards
-# (badge, badge colour, headline) — Fura's exact wording.
+# (badge, badge colour, headline, sub-or-None) — Fura's exact wording.
 CARDS = [
-    ("ASIA-PACIFIC", NAVY, "49th ASEAN Summit Opens in Manila"),
-    ("CONFLICT", CRIMSON, "Kerch Bridge Hit in Major Strike"),
-    ("MIDDLE EAST", (176, 122, 30), "Hormuz Tanker Attacks Escalate Tensions"),
-    ("TRADE — $280M", (31, 122, 77), "China & Canada Cut Tariffs Pre-APEC"),
-    ("TECH & ENERGY", (15, 110, 110), "UK Ends Palantir NHS Deal; Japan Oil Plan"),
+    ("ASIA-PACIFIC", NAVY, "49th ASEAN Summit Opens in Manila", None),
+    ("CONFLICT", CRIMSON, "Kerch Bridge Hit in Major Strike", None),
+    ("MIDDLE EAST", (176, 122, 30), "Hormuz Tanker Attacks Escalate Tensions", None),
+    ("TRADE — $280M", (31, 122, 77), "China & Canada Cut Tariffs Pre-APEC", None),
+    ("TECH", (96, 52, 140), "US Tightens AI Chip Curbs",
+     "Licences for 5 nations; Megaspeed probed"),
+    ("TECH & ENERGY", (15, 110, 110), "UK Ends Palantir NHS Deal; Japan Oil Plan", None),
 ]
 
 
-def draw_card(d, x, y, w, h, badge, color, headline):
+def draw_card(d, x, y, w, h, badge, color, headline, sub=None):
     d.rectangle([x, y, x + w, y + h], fill=CARD_BG, outline=NAVY, width=2)
     d.rectangle([x, y, x + 6, y + h], fill=color)
     badge_font = font(SANS_B, 14)
     bw = d.textlength(badge, font=badge_font) + 20
     head_font = font(SERIF_B, 23)
     lines = wrap(d, headline, head_font, w - 28)
-    block_h = 22 + 6 + len(lines) * 26
+    block_h = 22 + 6 + len(lines) * 26 + (24 if sub else 0)
     ty = y + (h - block_h) // 2
     tx = x + 20
     d.rounded_rectangle([tx, ty, tx + bw, ty + 22], radius=11, fill=color)
@@ -164,6 +166,8 @@ def draw_card(d, x, y, w, h, badge, color, headline):
     for line in lines:
         d.text((tx, ly), line, font=head_font, fill=INK)
         ly += 26
+    if sub:
+        d.text((tx, ly + 2), sub, font=font(SANS, 17), fill=SUBINK)
 
 
 def main():
@@ -180,14 +184,14 @@ def main():
     # Hero map, left ~45%.
     d.text((16, 102), "WORLD MAP — THREE FLASHPOINTS",
            font=font(SANS_B, 15), fill=NAVY)
-    draw_map(d, 16, 126, 420, 424)
-    d.text((26, 528), "Pins mark the three flashpoints; all six stories at right.",
+    draw_map(d, 16, 126, 420, 524)
+    d.text((26, 628), "Pins mark the three flashpoints; all seven stories at right.",
            font=font(SERIF, 13), fill=SUBINK)
 
     # Data cards, right ~55%.
     cx, cy, cw, chh, gap = 452, 96, 556, 89, 6
-    for i, (badge, color, head) in enumerate(CARDS):
-        draw_card(d, cx, cy + i * (chh + gap), cw, chh, badge, color, head)
+    for i, (badge, color, head, sub) in enumerate(CARDS):
+        draw_card(d, cx, cy + i * (chh + gap), cw, chh, badge, color, head, sub)
 
     img.save("entry.png", optimize=True)
     print("wrote entry.png", img.size)
