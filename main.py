@@ -1,13 +1,15 @@
-"""World News Brief v2 — 17 November 2026 (make.fun news-image-20261117).
+"""World News Brief v3 — 17 November 2026 (make.fun news-image-20261117).
 
-The entry is a single pre-drawn executive-briefing image, entry.png,
-rendered deterministically with Pillow by build_image.py: a 1024x683
-(3:2) warm-ivory broadsheet with a serif masthead naming Tuesday
-17 November 2026, a simplified world map on the left with three
-numbered flashpoint pins (Manila, Kerch Strait, Strait of Hormuz),
-and six data cards on the right covering all seven verified stories
-of that day (ASEAN summit in Manila, the Kerch Bridge strike, the
-Qeshm Island blasts and Hormuz tanker attacks, the China–Canada
+The entry is a single pre-drawn portrait Swiss poster, entry.png,
+rendered deterministically with Pillow by build_image.py: an 819x1024
+(4:5) Arctic Paper page with a grotesque masthead naming Tuesday
+17 November 2026, a real-cartography Robinson-projection world map
+(Natural Earth coastlines from data/coast.json, simplified from
+data/countries.geo.json by tools/prep_coast.py) with three vermilion
+conflict pins, two dashed trade/tech arcs and two acid-lime badges,
+and seven developments in a Swiss grid covering all seven verified
+stories of that day (ASEAN summit in Manila, the Kerch Bridge strike,
+the Qeshm Island blasts and Hormuz tanker attacks, the China–Canada
 $280M tariff cuts, the US AI chip curbs, the NHS Palantir contract
 ending in 2029, and Japan's Asian oil stockpiling proposal).
 
