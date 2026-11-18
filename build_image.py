@@ -1,20 +1,26 @@
-"""Draw the World News Brief broadsheet for Tuesday 17 November 2026.
+"""Draw the World News Brief v2 — "Visual-First Executive Briefing".
 
-Deterministic PIL rendering (no image model, so every letter is exact):
-a cream newsprint page, a serif masthead naming the day, and six bordered
-grid cards, one per verified story, each with a coloured tag, a short
-headline, one line of subtext and a small flat icon drawn from shapes.
-Output: entry.png, 1024x1024, well under the 1 MiB limit.
+16:9 broadsheet, 1024x576, deterministic PIL rendering (no image model,
+so every letter is exact): warm ivory page, navy + crimson accents, a
+serif masthead naming Tuesday 17 November 2026, a simplified editorial
+world map on the left with three numbered flashpoint pins, and five
+generously padded data cards on the right covering all six verified
+stories of the day. Output: entry.png, 1024x576, well under 1 MiB.
 """
+
+import math
 
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 1024, 1024
-CREAM = (247, 245, 240)
-INK = (20, 20, 20)
-RULE = (20, 20, 20)
-SUBINK = (58, 58, 58)
-CARD_BG = (255, 253, 248)
+W, H = 1024, 576
+IVORY = (247, 244, 235)
+INK = (19, 41, 61)          # deep navy, also the main text ink
+NAVY = (19, 41, 61)
+CRIMSON = (193, 41, 46)
+CARD_BG = (255, 253, 247)
+SUBINK = (64, 74, 84)
+LAND = (176, 196, 209)      # pale steel blue landmasses
+LAND_LINE = (19, 41, 61)
 
 SERIF_B = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
 SERIF = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"
@@ -27,7 +33,6 @@ def font(path, size):
 
 
 def wrap(draw, text, fnt, max_w):
-    """Greedy word wrap measured in real pixels."""
     words = text.split()
     lines, cur = [], ""
     for word in words:
@@ -48,161 +53,142 @@ def text_c(draw, cx, y, text, fnt, fill=INK):
     draw.text((cx - w / 2, y), text, font=fnt, fill=fill)
 
 
-# ---------------------------------------------------------------- icons
-def icon_summit(d, x, y, s):
-    # Three flags over a summit hall.
-    d.rectangle([x, y + s * 0.62, x + s, y + s * 0.95], fill=(38, 70, 120))
-    d.polygon([(x, y + s * 0.62), (x + s * 0.18, y + s * 0.42),
-               (x + s * 0.82, y + s * 0.42), (x + s, y + s * 0.62)],
-              fill=(52, 96, 158))
-    for i, col in enumerate([(178, 34, 34), (34, 120, 70), (212, 160, 32)]):
-        px = x + s * (0.22 + 0.28 * i)
-        d.line([px, y + s * 0.05, px, y + s * 0.45], fill=INK, width=4)
-        d.polygon([(px, y + s * 0.05), (px + s * 0.20, y + s * 0.12),
-                   (px, y + s * 0.19)], fill=col)
+# ---------------------------------------------------------------- map
+# Simplified continents as flat polygons, in fractions of the map box.
+CONTINENTS = [
+    # North America
+    [(0.03, 0.16), (0.06, 0.08), (0.14, 0.05), (0.24, 0.07), (0.30, 0.12),
+     (0.28, 0.18), (0.24, 0.24), (0.20, 0.30), (0.22, 0.38), (0.18, 0.45),
+     (0.15, 0.36), (0.10, 0.34), (0.05, 0.28), (0.02, 0.22)],
+    # Greenland
+    [(0.29, 0.02), (0.34, 0.02), (0.34, 0.08), (0.29, 0.08)],
+    # South America
+    [(0.20, 0.48), (0.28, 0.46), (0.33, 0.52), (0.32, 0.66), (0.27, 0.82),
+     (0.23, 0.78), (0.20, 0.62)],
+    # Europe
+    [(0.47, 0.10), (0.53, 0.08), (0.58, 0.12), (0.57, 0.20), (0.52, 0.24),
+     (0.47, 0.20), (0.45, 0.14)],
+    # Africa
+    [(0.46, 0.32), (0.55, 0.30), (0.61, 0.36), (0.60, 0.50), (0.55, 0.62),
+     (0.50, 0.60), (0.46, 0.46)],
+    # Asia
+    [(0.58, 0.08), (0.70, 0.05), (0.85, 0.08), (0.97, 0.14), (0.95, 0.26),
+     (0.88, 0.34), (0.80, 0.30), (0.74, 0.38), (0.68, 0.30), (0.60, 0.22),
+     (0.57, 0.14)],
+    # SE Asia peninsula
+    [(0.78, 0.34), (0.82, 0.42), (0.80, 0.48), (0.76, 0.42)],
+    # Philippines
+    [(0.80, 0.44), (0.83, 0.45), (0.83, 0.50), (0.81, 0.51), (0.79, 0.47)],
+    # Japan
+    [(0.93, 0.18), (0.95, 0.19), (0.94, 0.25), (0.92, 0.23)],
+    # Britain
+    [(0.45, 0.11), (0.47, 0.11), (0.47, 0.16), (0.45, 0.16)],
+    # Australia
+    [(0.80, 0.62), (0.90, 0.60), (0.95, 0.66), (0.92, 0.74), (0.84, 0.74),
+     (0.79, 0.68)],
+]
+
+# (number, place, descriptor, map-fraction x, y)
+PINS = [
+    (2, "KERCH STRAIT", "Bridge hit in major strike", 0.575, 0.17),
+    (3, "STRAIT OF HORMUZ", "Qeshm blast, tankers hit", 0.665, 0.335),
+    (1, "MANILA", "ASEAN Summit; Trump arrives", 0.815, 0.475),
+]
+
+# Label chips, in map-relative pixels (map box 420 x 430), drawn after
+# the leader lines so no line crosses a chip's text.
+CHIPS = {
+    2: (8, 8),
+    3: (110, 200),
+    1: (200, 258),
+}
 
 
-def icon_bridge(d, x, y, s):
-    # A bridge deck with its middle span broken and fallen, over water.
-    d.line([x, y + s * 0.30, x + s * 0.36, y + s * 0.30], fill=INK, width=8)
-    d.line([x + s * 0.64, y + s * 0.30, x + s, y + s * 0.30], fill=INK, width=8)
-    d.line([x + s * 0.38, y + s * 0.30, x + s * 0.56, y + s * 0.52],
-           fill=(178, 34, 34), width=8)
-    d.line([x + s * 0.16, y + s * 0.30, x + s * 0.16, y + s * 0.56], fill=INK, width=6)
-    d.line([x + s * 0.84, y + s * 0.30, x + s * 0.84, y + s * 0.56], fill=INK, width=6)
-    for i, wy in enumerate([0.68, 0.80, 0.92]):
-        d.arc([x + s * 0.08 + i * s * 0.05, y + s * wy, x + s * 0.42 + i * s * 0.05,
-               y + s * (wy + 0.08)], 0, 180, fill=(52, 96, 158), width=5)
+def draw_map(d, x0, y0, w, h):
+    # Ocean panel.
+    d.rectangle([x0, y0, x0 + w, y0 + h], fill=(233, 238, 240),
+                outline=NAVY, width=2)
+    for poly in CONTINENTS:
+        pts = [(x0 + fx * w, y0 + fy * h) for fx, fy in poly]
+        d.polygon(pts, fill=LAND, outline=LAND_LINE)
+    # Leader lines first, then pins, then chips on top.
+    pins_px = {}
+    for num, _place, _desc, fx, fy in PINS:
+        px, py = x0 + fx * w, y0 + fy * h
+        pins_px[num] = (px, py)
+        cx, cy = CHIPS[num]
+        d.line([x0 + cx + 100, y0 + cy + 46, px, py], fill=NAVY, width=2)
+    for num, place, desc, _fx, _fy in PINS:
+        px, py = pins_px[num]
+        r = 13
+        d.ellipse([px - r, py - r, px + r, py + r], fill=CRIMSON,
+                  outline=(255, 255, 255), width=2)
+        num_font = font(SANS_B, 15)
+        tw = d.textlength(str(num), font=num_font)
+        d.text((px - tw / 2, py - 10), str(num), font=num_font,
+               fill=(255, 255, 255))
+    for num, place, desc, _fx, _fy in PINS:
+        cx, cy = CHIPS[num]
+        bx, by = x0 + cx, y0 + cy
+        d.rounded_rectangle([bx, by, bx + 200, by + 46], radius=6,
+                            fill=(255, 253, 247), outline=NAVY, width=2)
+        d.text((bx + 10, by + 5), f"{num}  {place}", font=font(SANS_B, 15),
+               fill=NAVY)
+        d.text((bx + 10, by + 25), desc, font=font(SANS, 12), fill=SUBINK)
 
 
-def icon_tanker(d, x, y, s):
-    # A tanker under an orange blast burst.
-    cx, cy = x + s * 0.5, y + s * 0.22
-    for k in range(8):
-        ang = k * 3.14159 / 4
-        d.line([cx + 0.10 * s * _cos(ang), cy + 0.10 * s * _sin(ang),
-                cx + 0.30 * s * _cos(ang), cy + 0.30 * s * _sin(ang)],
-               fill=(224, 122, 26), width=6)
-    d.ellipse([cx - s * 0.09, cy - s * 0.09, cx + s * 0.09, cy + s * 0.09],
-              fill=(224, 122, 26))
-    d.polygon([(x + s * 0.06, y + s * 0.58), (x + s * 0.94, y + s * 0.58),
-               (x + s * 0.84, y + s * 0.82), (x + s * 0.16, y + s * 0.82)],
-              fill=(38, 70, 120))
-    d.rectangle([x + s * 0.62, y + s * 0.40, x + s * 0.78, y + s * 0.58],
-                fill=(178, 34, 34))
-    d.line([x, y + s * 0.90, x + s, y + s * 0.90], fill=(52, 96, 158), width=5)
-
-
-def _cos(a):
-    import math
-    return math.cos(a)
-
-
-def _sin(a):
-    import math
-    return math.sin(a)
-
-
-def icon_trade(d, x, y, s):
-    # Stacked shipping containers with a downward tariff arrow.
-    cols = [(178, 34, 34), (34, 120, 70), (38, 70, 120)]
-    for row, col in enumerate(cols):
-        yy = y + s * (0.16 + row * 0.22)
-        d.rectangle([x + s * 0.06, yy, x + s * 0.62, yy + s * 0.18], fill=col)
-        for k in range(1, 4):
-            d.line([x + s * (0.06 + 0.14 * k), yy, x + s * (0.06 + 0.14 * k),
-                    yy + s * 0.18], fill=(255, 255, 255), width=3)
-    d.line([x + s * 0.82, y + s * 0.14, x + s * 0.82, y + s * 0.78],
-           fill=(34, 120, 70), width=8)
-    d.polygon([(x + s * 0.68, y + s * 0.66), (x + s * 0.96, y + s * 0.66),
-               (x + s * 0.82, y + s * 0.86)], fill=(34, 120, 70))
-
-
-def icon_tech(d, x, y, s):
-    # A hospital screen whose data cable is cut.
-    d.rectangle([x + s * 0.08, y + s * 0.10, x + s * 0.92, y + s * 0.72],
-                outline=INK, width=5, fill=(255, 255, 255))
-    d.rectangle([x + s * 0.42, y + s * 0.22, x + s * 0.58, y + s * 0.58],
-                fill=(178, 34, 34))
-    d.rectangle([x + s * 0.30, y + s * 0.34, x + s * 0.70, y + s * 0.46],
-                fill=(178, 34, 34))
-    d.line([x + s * 0.30, y + s * 0.82, x + s * 0.42, y + s * 0.82], fill=INK, width=5)
-    d.line([x + s * 0.58, y + s * 0.82, x + s * 0.72, y + s * 0.94], fill=(178, 34, 34), width=5)
-    d.line([x + s * 0.42, y + s * 0.72, x + s * 0.42, y + s * 0.82], fill=INK, width=5)
-    d.line([x + s * 0.58, y + s * 0.72, x + s * 0.58, y + s * 0.82], fill=INK, width=5)
-
-
-def icon_energy(d, x, y, s):
-    # An oil barrel under a flame.
-    d.polygon([(x + s * 0.50, y + s * 0.06), (x + s * 0.64, y + s * 0.26),
-               (x + s * 0.36, y + s * 0.26)], fill=(224, 122, 26))
-    d.rectangle([x + s * 0.22, y + s * 0.34, x + s * 0.78, y + s * 0.92],
-                fill=(38, 70, 120))
-    d.rectangle([x + s * 0.22, y + s * 0.46, x + s * 0.78, y + s * 0.52], fill=INK)
-    d.rectangle([x + s * 0.22, y + s * 0.68, x + s * 0.78, y + s * 0.74], fill=INK)
-
-
-STORIES = [
-    ("GEOPOLITICS", (38, 70, 120), "Trump lands in Manila",
-     "49th ASEAN Summit opens amid protests", icon_summit),
-    ("CONFLICT", (178, 34, 34), "Kerch Bridge span collapses",
-     "Ukraine strike halts Crimea traffic", icon_bridge),
-    ("MIDDLE EAST", (146, 94, 20), "Blasts rock Qeshm Island",
-     "Iran reports US strike; tankers hit in Hormuz", icon_tanker),
-    ("TRADE", (34, 120, 70), "China cuts Canada tariffs",
-     "$280M relief on pork and seafood", icon_trade),
-    ("TECH", (96, 52, 140), "NHS Palantir deal ends 2029",
-     "UK skips break clause, plans new tender", icon_tech),
-    ("ENERGY", (18, 110, 120), "Japan pitches Asian oil pact",
-     "Shared stockpiles eyed as Asian IEA", icon_energy),
+# ---------------------------------------------------------------- cards
+# (badge, badge colour, headline) — Fura's exact wording.
+CARDS = [
+    ("ASIA-PACIFIC", NAVY, "49th ASEAN Summit Opens in Manila"),
+    ("CONFLICT", CRIMSON, "Kerch Bridge Hit in Major Strike"),
+    ("MIDDLE EAST", (176, 122, 30), "Hormuz Tanker Attacks Escalate Tensions"),
+    ("TRADE — $280M", (31, 122, 77), "China & Canada Cut Tariffs Pre-APEC"),
+    ("TECH & ENERGY", (15, 110, 110), "UK Ends Palantir NHS Deal; Japan Oil Plan"),
 ]
 
 
-def draw_card(d, x, y, w, h, tag, color, headline, sub, icon_fn):
-    d.rectangle([x, y, x + w, y + h], fill=CARD_BG, outline=INK, width=3)
-    d.rectangle([x, y, x + w, y + 5], fill=color)
-    pad = 18
-    tx = x + pad
-    ty = y + 20
-    tag_font = font(SANS_B, 17)
-    tw = d.textlength(tag, font=tag_font) + 22
-    d.rounded_rectangle([tx, ty, tx + tw, ty + 30], radius=15, fill=color)
-    d.text((tx + 11, ty + 5), tag, font=tag_font, fill=(255, 255, 255))
-    icon_fn(d, x + w - 152, y + 76, 132)
-    text_w = w - pad * 2 - 152
-    head_font = font(SERIF_B, 30)
-    lines = wrap(d, headline, head_font, text_w)
-    ly = ty + 46
+def draw_card(d, x, y, w, h, badge, color, headline):
+    d.rectangle([x, y, x + w, y + h], fill=CARD_BG, outline=NAVY, width=2)
+    d.rectangle([x, y, x + 6, y + h], fill=color)
+    badge_font = font(SANS_B, 14)
+    bw = d.textlength(badge, font=badge_font) + 20
+    head_font = font(SERIF_B, 23)
+    lines = wrap(d, headline, head_font, w - 28)
+    block_h = 22 + 6 + len(lines) * 26
+    ty = y + (h - block_h) // 2
+    tx = x + 20
+    d.rounded_rectangle([tx, ty, tx + bw, ty + 22], radius=11, fill=color)
+    d.text((tx + 10, ty + 3), badge, font=badge_font, fill=(255, 255, 255))
+    ly = ty + 28
     for line in lines:
         d.text((tx, ly), line, font=head_font, fill=INK)
-        ly += 38
-    sub_font = font(SANS, 20)
-    for line in wrap(d, sub, sub_font, text_w):
-        d.text((tx, ly + 4), line, font=sub_font, fill=SUBINK)
-        ly += 27
+        ly += 26
 
 
 def main():
-    img = Image.new("RGB", (W, H), CREAM)
+    img = Image.new("RGB", (W, H), IVORY)
     d = ImageDraw.Draw(img)
-    d.rectangle([8, 8, W - 9, H - 9], outline=INK, width=3)
-    d.rectangle([16, 16, W - 17, H - 17], outline=INK, width=1)
+    d.rectangle([6, 6, W - 7, H - 7], outline=NAVY, width=3)
 
-    text_c(d, W // 2, 34, "WORLD NEWS BRIEF", font(SERIF_B, 66))
-    d.line([60, 122, W - 60, 122], fill=RULE, width=3)
-    text_c(d, W // 2, 134, "TUESDAY, 17 NOVEMBER 2026", font(SANS_B, 30))
-    text_c(d, W // 2, 172, "Six stories from around the world — as reported on 17 November 2026",
-           font(SERIF, 20), fill=SUBINK)
+    text_c(d, W // 2, 16, "THE WORLD TODAY — 17 NOVEMBER 2026",
+           font(SERIF_B, 40))
+    text_c(d, W // 2, 62, "GLOBAL EXECUTIVE BRIEFING", font(SANS_B, 19),
+           fill=CRIMSON)
+    d.line([24, 92, W - 24, 92], fill=NAVY, width=2)
 
-    gx, gy = 24, 206
-    cw, chh, gap = 480, 240, 12
-    for i, (tag, color, head, sub, icon_fn) in enumerate(STORIES):
-        cx = gx + (i % 2) * (cw + gap)
-        cy = gy + (i // 2) * (chh + gap)
-        draw_card(d, cx, cy, cw, chh, tag, color, head, sub, icon_fn)
+    # Hero map, left ~45%.
+    d.text((16, 102), "WORLD MAP — THREE FLASHPOINTS",
+           font=font(SANS_B, 15), fill=NAVY)
+    draw_map(d, 16, 126, 420, 424)
+    d.text((26, 528), "Pins mark the three flashpoints; all six stories at right.",
+           font=font(SERIF, 13), fill=SUBINK)
 
-    text_c(d, W // 2, 962, "Sources: as reported 17 Nov 2026 — Reuters, BusinessWorld, Computer Weekly and others.",
-           font(SANS, 15), fill=SUBINK)
+    # Data cards, right ~55%.
+    cx, cy, cw, chh, gap = 452, 96, 556, 89, 6
+    for i, (badge, color, head) in enumerate(CARDS):
+        draw_card(d, cx, cy + i * (chh + gap), cw, chh, badge, color, head)
+
     img.save("entry.png", optimize=True)
     print("wrote entry.png", img.size)
 

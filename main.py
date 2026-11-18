@@ -1,12 +1,15 @@
-"""World News Brief — 17 November 2026 (make.fun news-image-20261117).
+"""World News Brief v2 — 17 November 2026 (make.fun news-image-20261117).
 
-The entry is a single pre-drawn broadsheet image, entry.png, rendered
-deterministically with Pillow by build_image.py: a cream newsprint page
-with a serif masthead naming Tuesday 17 November 2026 and six bordered
-cards, one per verified story of that day (ASEAN summit in Manila, the
-Kerch Bridge strike, the Qeshm Island blasts, the China–Canada tariff
-cuts, the NHS Palantir contract ending in 2029, and Japan's Asian oil
-stockpiling proposal).
+The entry is a single pre-drawn executive-briefing image, entry.png,
+rendered deterministically with Pillow by build_image.py: a 1024x576
+(16:9) warm-ivory broadsheet with a serif masthead naming Tuesday
+17 November 2026, a simplified world map on the left with three
+numbered flashpoint pins (Manila, Kerch Strait, Strait of Hormuz),
+and five data cards on the right covering all six verified stories
+of that day (ASEAN summit in Manila, the Kerch Bridge strike, the
+Qeshm Island blasts and Hormuz tanker attacks, the China–Canada
+$280M tariff cuts, the NHS Palantir contract ending in 2029, and
+Japan's Asian oil stockpiling proposal).
 
 This program does one thing: it copies that image, byte for byte, to the
 grader's output location, so both runs produce identical bytes. It uses
