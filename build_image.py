@@ -1,34 +1,26 @@
-"""Draw the World News Brief v5 — "WORLD ON EDGE." magazine cover.
+"""Draw the World News Brief v6 — dense 1024x1024 broadsheet.
 
-819x1024 (4:5) deterministic rendering. SVG-first architecture: the
-whole poster is authored as SVG vector primitives (masthead, a
-Robinson-projection world map from real Natural Earth coastlines, and
-seven bespoke story illustrations) and rasterized with CairoSVG at
-819x1024. Pillow is used only to measure text (same Liberation fonts
-CairoSVG resolves) so wrapping and fitting are exact. No image model,
-no network, no timestamps, no randomness. No paper-grain pass: the
-base render already lands at ~199 KB from legitimate detail
-(coastlines, graticule, colour blocks), inside the 190-240 KB target.
+Deterministic SVG-first rendering via CairoSVG at 1024x1024:
+masthead, three illustrated hero banners, a dense 12-story editorial
+grid (4 x 3), a Robinson-projection world map widget with numbered
+pins, and a Key Themes & Daily Numbers panel. Pillow measures text
+with the same Liberation fonts CairoSVG resolves, so wrapping and
+fitting are exact. No image model, no network, no timestamps, no
+randomness.
 
-v5 is one precision refinement pass on the v4 base (kept intact):
-masthead ~10% tighter (padding, not type); the two arcs redrawn as
-stylized mid-latitude Pacific routes (Catmull-Rom, split at the
-antimeridian, never over the pole); the 02 chip moved to the
-upper-left Atlantic; radar rings on the three conflict pins;
-coordinate ticks on the hero panel; the invisible lime "06" fixed
-with a pill badge; body copy +20% with unified weight; the orphan
-lime "07" square replaced by a summary strip; illustrations unified.
+Palette: warm newsprint #FAF8F3, dark navy #14213D, slate #2B4162,
+crimson #C1121F, teal #1D6F72, pale-blue ocean #E3EEF5. All 15
+stories (3 heroes + 12 grid) are Tuesday 17 November 2026 news
+verified against live reporting; every figure on the poster comes
+from the Phase 1 verification (see the builder's report).
 
-Palette (bold colour blocking, not thin lines): Warm Editorial Paper
-#F2F0E8, Deep Ink #17191C, Electric Cobalt #202BEB, Signal Red
-#E74632, Acid Lime #D5F04A. Layout: oversized stacked headline,
-full-bleed ink hero map panel, four rows of asymmetric story modules
-(no dashboard boxes), minimal footer. All seven stories of Tuesday
-17 November 2026 use Fura's exact copy, verified against live news.
-
-Output: entry.png (819x1024, under 240 KB) + entry.svg (the source).
+Output: entry.png (1024x1024, target 210-245 KB, hard cap 1 MiB)
++ entry.svg (the source). If the base render exceeds 245 KB it is
+quantized to a 256-colour adaptive palette (deterministic, visually
+lossless on this flat vector art) and re-saved.
 """
 
+import hashlib
 import json
 import math
 import os
@@ -39,16 +31,22 @@ import cairosvg
 from PIL import Image, ImageDraw, ImageFont
 
 HERE = Path(__file__).resolve().parent
-W, H = 819, 1024
-PAPER = "#F2F0E8"
-INK = "#17191C"
-COBALT = "#202BEB"
-RED = "#E74632"
-LIME = "#D5F04A"
-GRAT_DARK = "#45484B"      # graticule on the ink hero panel
-OCEAN_GREY = "#9AA0A0"     # ocean labels on the ink hero panel
-PAPER_RGB = (242, 240, 232)
+W, H = 1024, 1024
+PAPER = "#FAF8F3"
+INK = "#14213D"
+SLATE = "#2B4162"
+CRIMSON = "#C1121F"
+TEAL = "#1D6F72"
+OCEAN = "#E3EEF5"
+CARD = "#FFFFFF"
+SAND = "#E8DFCE"
+GOLD = "#E8B93C"
+AMBER = "#F2C879"
+GREY = "#8A94A6"
+GRAT = "#C3D5E2"
+COASTLINE = "#9DB4C0"
 
+SERIF_B = "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf"
 SANS_B = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 SANS = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
 SANS_I = "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf"
@@ -57,7 +55,7 @@ _measure = ImageDraw.Draw(Image.new("RGB", (8, 8)))
 
 
 def font(path, size):
-    return ImageFont.truetype(path, size)
+    return ImageFont.truetype(path, int(size))
 
 
 def tw(text, fnt):
@@ -122,11 +120,9 @@ def _robinson_xy(lat_deg):
 
 
 class RobinsonMap:
-    """Robinson projection fitted into a w x h box, equal scale, with a
-    small inset so the North Pole line and the great-circle arcs that
-    pass near it stay visibly inside the frame."""
+    """Robinson projection fitted into a w x h box, equal scale."""
 
-    def __init__(self, w, h, pad=10):
+    def __init__(self, w, h, pad=4):
         x_range = 2 * 0.8487 * math.pi
         y_top = 1.3523 * _robinson_xy(LAT1)[1]
         y_bot = 1.3523 * _robinson_xy(LAT0)[1]
@@ -160,404 +156,232 @@ def split_ring(ring):
     return parts
 
 
-def catmull_rom(points, samples=24):
-    """Smooth curve through (lat, lon) points; lon may be unwrapped
-    past ±180 so a Pacific route crosses the antimeridian cleanly."""
-    pts = [points[0]] + list(points) + [points[-1]]
-    out = []
-    for i in range(len(pts) - 3):
-        p0, p1, p2, p3 = pts[i], pts[i + 1], pts[i + 2], pts[i + 3]
-        for j in range(samples):
-            t = j / samples
-            t2, t3 = t * t, t * t * t
-            lat = 0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t
-                         + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2
-                         + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3)
-            lon = 0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t
-                         + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2
-                         + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3)
-            out.append((lat, lon))
-    out.append(points[-1])
-    return out
-
-
-def pacific_route(waypoints, anchor, proj, w, h, warnings, num):
-    """Stylized Pacific connection arc: Catmull-Rom through the
-    waypoints, wrapped at the antimeridian and truncated at ±176 so
-    both visible segments stay inside the panel with margin.
-    Returns (segments, ends, anchor_pt) in canvas coordinates."""
-    sampled = catmull_rom(waypoints)
-    segments, cur = [], []
-    for lat, lon in sampled:
-        wl = ((lon + 180.0) % 360.0) - 180.0
-        if abs(wl) > 176.0:
-            if len(cur) >= 2:
-                segments.append(cur)
-            cur = []
-            continue
-        cur.append((lat, wl))
-    if len(cur) >= 2:
-        segments.append(cur)
-    proj_segments = []
-    for seg in segments:
-        pts = [proj.project(lon, lat) for lat, lon in seg]
-        for rx, ry in pts:
-            if not (10 <= rx <= w - 10 and 10 <= ry <= h - 10):
-                warnings.append(f"arc {num:02d} point near frame edge "
-                                f"({rx:.0f}, {ry:.0f})")
-        proj_segments.append(pts)
-    ends = (proj_segments[0][0], proj_segments[-1][-1])
-    ax, ay = proj.project(anchor[1], anchor[0])
-    return proj_segments, ends, (ax, ay)
-
-
 def pts_str(pts):
     return " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
 
 
-def rects_overlap(a, b):
-    return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
+def star_points(cx, cy, r_outer, r_inner, n=8):
+    """Alternating-radius star polygon points (deterministic)."""
+    pts = []
+    for i in range(2 * n):
+        r = r_outer if i % 2 == 0 else r_inner
+        a = math.pi * i / n - math.pi / 2
+        pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+    return pts_str(pts)
 
 
-def overlap_area(a, b):
-    if not rects_overlap(a, b):
-        return 0.0
-    return (min(a[2], b[2]) - max(a[0], b[0])) * (
-        min(a[3], b[3]) - max(a[1], b[1])
-    )
-
-
-# (number, chip label, latitude, longitude, kind, colour)
-MARKERS = [
-    (1, "MANILA", 14.60, 120.98, "pin", RED),
-    (2, "KERCH STRAIT", 45.35, 36.60, "pin", RED),
-    (3, "HORMUZ", 26.75, 56.05, "pin", RED),
-    (6, "LONDON", 51.51, -0.13, "badge", LIME),
-    (7, "TOKYO", 35.68, 139.69, "badge", LIME),
-]
-# Arcs: (number, chip label, waypoints, chip anchor, colour).
-# Stylized Pacific connection arcs — NOT great circles over the pole
-# and NOT attack trajectories: smooth Catmull-Rom routes through
-# mid-latitude Pacific waypoints (lon unwrapped so the route crosses
-# the antimeridian, where it is split into two visible segments).
-# 04 Shenzhen <-> Vancouver, 05 San Francisco <-> Singapore.
-ARCS = [
-    (4, "CHINA–CANADA",
-     [(22.55, 114.06), (28, 140), (34, 168), (38, 180), (41, 200),
-      (45, 220), (49.28, 236.88)], (33, 160), COBALT),
-    (5, "US–SINGAPORE",
-     [(37.77, -122.42), (32, -150), (26, -180), (18, -210),
-      (10, -235), (1.35, -256.18)], (30, -150), LIME),
-]
-# Ocean labels: (text, lon, lat) — placed by projection, centred.
-OCEAN_LABELS = [
-    ("ATLANTIC OCEAN", -28.0, 5.0),
-    ("PACIFIC OCEAN", -150.0, -5.0),
-    ("INDIAN OCEAN", 75.0, -28.0),
-    ("SOUTHERN OCEAN", 60.0, -52.0),
+# ---------------------------------------------------------------- map widget
+# (label, lat, lon, colour, dx, dy) — dx/dy offset the numbered pill
+# from the true point; a leader line joins pill to a dot on the point.
+# At this map scale London/Brussels and Shenzhen/Taoyuan/Manila sit
+# only a few pixels apart, so clustered pins get leader pills instead
+# of overlapping circles. dx=dy=0 means a numbered circle on the
+# point itself (only New York is isolated enough for that).
+MAP_PINS = [
+    ("H1", 14.60, 120.98, CRIMSON, 17, 6),     # Manila — ASEAN
+    ("H2", 45.35, 36.60, CRIMSON, 14, -29),    # Kerch Strait
+    ("H3", 26.75, 56.05, CRIMSON, -20, 18),    # Hormuz
+    ("05", 26.75, 56.05, CRIMSON, 21, -18),    # Hormuz oil prices
+    ("01", 22.55, 114.06, INK, -24, 2),        # Shenzhen
+    ("02", 1.35, 103.82, INK, -4, 16),         # Singapore
+    ("03", 51.51, -0.13, INK, -29, -19),       # London (NHS)
+    ("10", 51.51, -0.13, INK, 15, -17),        # London (Mexico-UK)
+    ("04", 35.68, 139.69, INK, 10, -20),       # Tokyo
+    ("06", 31.50, 34.47, INK, 32, 24),         # Gaza (ceasefire)
+    ("12", 31.50, 34.47, INK, -50, 31),        # Gaza (winter aid)
+    ("07", 50.85, 4.35, INK, -34, -2),         # Brussels
+    ("08", 36.90, 30.71, INK, -36, -2),        # Antalya (COP31)
+    ("09", 25.00, 121.30, INK, 13, 2),         # Taoyuan (Nvidia/Kinsus)
+    ("11", 40.71, -74.01, INK, 0, 0),          # New York (Fed)
 ]
 
 
-def place_chips(anchors, avoid, w, h, forbidden=(), preferred=None):
-    """Greedy chip placement around anchor points (map-canvas coords).
-    preferred maps a chip number to a target centre the chip is pulled
-    toward (e.g. 02 into the clean upper-left Atlantic). Returns
-    {num: (rect, leader_end)}."""
-    chip_font = font(SANS_B, 12)
-    placed = {}
-    labels = {m[0]: m[1] for m in MARKERS}
-    labels.update({a[0]: a[1] for a in ARCS})
-    order = [1, 5, 4, 7, 2, 3, 6]  # crowded East Asia first
-    for num in order:
-        label = f"{num:02d} {labels[num]}"
-        cw = tw(label, chip_font) + 16
-        ch = 22
-        px, py = anchors[num]
-        candidates = [
-            (14, -11), (-14 - cw, -11), (14, -33), (-14 - cw, -33),
-            (14, 11), (-14 - cw, 11), (-cw // 2, -36), (-cw // 2, 14),
-        ]
-        for gx in range(-280, 81, 20):
-            for gy in range(-70, 71, 20):
-                candidates.append((gx, gy))
-        best = None
-        for dx, dy in candidates:
-            rect = (px + dx, py + dy, px + dx + cw, py + dy + ch)
-            score = 0.0
-            if rect[0] < 2 or rect[1] < 2 or rect[2] > w - 2 or rect[3] > h - 2:
-                score += 10000
-                score += 100 * (
-                    max(0, 2 - rect[0]) + max(0, 2 - rect[1])
-                    + max(0, rect[2] - (w - 2)) + max(0, rect[3] - (h - 2))
-                )
-            for other_rect, _ in placed.values():
-                score += overlap_area(rect, other_rect) * 50
-            for f in forbidden:
-                score += overlap_area(rect, f) * 50
-            for ax, ay in avoid:
-                cx = min(max(ax, rect[0]), rect[2])
-                cy = min(max(ay, rect[1]), rect[3])
-                if math.hypot(ax - cx, ay - cy) < 18:
-                    score += 5000
-            score += math.hypot(dx + cw / 2, dy + ch / 2) * 0.5
-            if preferred and num in preferred:
-                tx, ty = preferred[num]
-                score += math.hypot(rect[0] + cw / 2 - tx,
-                                    rect[1] + ch / 2 - ty) * 1.5
-            if best is None or score < best[0]:
-                best = (score, rect)
-        _, rect = best
-        cx = min(max(px, rect[0]), rect[2])
-        cy = min(max(py, rect[1]), rect[3])
-        placed[num] = (rect, (cx, cy))
-        print(f"chip {num:02d}: rect {tuple(round(v) for v in rect)} "
-              f"score {best[0]:.0f}")
-        if best[0] > 1000:
-            print(f"WARNING: chip {num:02d} placement scored {best[0]:.0f}")
-    return placed
-
-
-# ---------------------------------------------------------------- hero map
-def hero_map_svg(x0, y0, w, h):
-    """Robinson world map on the ink panel, as SVG. Returns the SVG
-    fragment (absolute canvas coordinates) plus a list of warnings."""
+def map_widget_svg(x0, y0, w, h):
+    """World map widget: pale-blue ocean, sand land from real Natural
+    Earth coastlines, graticule, numbered pins. Local coordinates."""
     out = []
-    warnings = []
+    out.append(f'<rect x="0" y="0" width="{w}" height="{h}" '
+               f'fill="{OCEAN}"/>')
+    out.append(f'<rect x="0" y="0" width="{w}" height="{h}" fill="none" '
+               f'stroke="{INK}" stroke-width="1.5"/>')
+    out.append(
+        f'<text x="12" y="20" font-family="Liberation Sans" '
+        f'font-weight="bold" font-size="12" fill="{INK}">'
+        f'THE GLOBAL MAP \u2014 12 HOTSPOTS</text>')
+    mw, mh = w - 12, h - 44
     coast = json.loads((HERE / "data" / "coast.json").read_text())
-    proj = RobinsonMap(w, h)
-    # Graticule every 15 degrees.
-    for lon in range(-165, 181, 15):
+    proj = RobinsonMap(mw, mh)
+    inner = [f'<g transform="translate(6 28)">']
+    for lon in range(-150, 181, 30):
         pts = [proj.project(lon, lat) for lat in range(-60, 91, 5)]
-        out.append(
+        inner.append(
             f'<polyline points="{pts_str(pts)}" fill="none" '
-            f'stroke="{GRAT_DARK}" stroke-width="1"/>')
-    for lat in range(-60, 91, 15):
+            f'stroke="{GRAT}" stroke-width="1"/>')
+    for lat in range(-60, 91, 30):
         x1, gy = proj.project(-180, lat)
         x2, _ = proj.project(180, lat)
-        out.append(
+        inner.append(
             f'<line x1="{x1:.1f}" y1="{gy:.1f}" x2="{x2:.1f}" '
-            f'y2="{gy:.1f}" stroke="{GRAT_DARK}" stroke-width="1"/>')
-    # Coordinate ticks on the panel edges (every 30 degrees).
-    for lon in range(-180, 181, 30):
-        tx, _ = proj.project(lon, 0)
-        out.append(
-            f'<line x1="{tx:.1f}" y1="0" x2="{tx:.1f}" y2="6" '
-            f'stroke="{GRAT_DARK}" stroke-width="1.5"/>')
-        out.append(
-            f'<line x1="{tx:.1f}" y1="{h - 6:.1f}" x2="{tx:.1f}" '
-            f'y2="{h:.1f}" stroke="{GRAT_DARK}" stroke-width="1.5"/>')
-    for lat in range(-60, 91, 30):
-        _, ty = proj.project(0, lat)
-        out.append(
-            f'<line x1="0" y1="{ty:.1f}" x2="6" y2="{ty:.1f}" '
-            f'stroke="{GRAT_DARK}" stroke-width="1.5"/>')
-        out.append(
-            f'<line x1="{w - 6:.1f}" y1="{ty:.1f}" x2="{w:.1f}" '
-            f'y2="{ty:.1f}" stroke="{GRAT_DARK}" stroke-width="1.5"/>')
-    # Real coastlines, split at the antimeridian.
+            f'y2="{gy:.1f}" stroke="{GRAT}" stroke-width="1"/>')
     for poly in coast["polys"]:
         for part in split_ring(poly):
             pts = [proj.project(lon, lat) for lon, lat in part]
-            out.append(
-                f'<polygon points="{pts_str(pts)}" fill="{PAPER}"/>')
-    # Ocean labels (projected anchors, centred).
-    label_font = font(SANS_I, 12)
-    label_rects = []
-    for text, lon, lat in OCEAN_LABELS:
+            inner.append(
+                f'<polygon points="{pts_str(pts)}" fill="{SAND}" '
+                f'stroke="{COASTLINE}" stroke-width="0.6"/>')
+    pin_fnt = font(SANS_B, 9)
+    for label, lat, lon, color, dx, dy in MAP_PINS:
         px, py = proj.project(lon, lat)
-        lw = tw(text, label_font)
-        label_rects.append((px - lw / 2 - 2, py - 12, px + lw / 2 + 2,
-                            py + 4))
-        out.append(
-            f'<text x="{px:.1f}" y="{py:.1f}" text-anchor="middle" '
-            f'font-family="Liberation Sans" font-style="italic" '
-            f'font-size="12" fill="{OCEAN_GREY}">{esc(text)}</text>')
-    # Vertical side labels live in the dark bands beside the map.
-    # (Local map-canvas coordinates: the caller translates the group.)
-    left_rect = (52.0, 30.0, 70.0, h - 30.0)
-    right_rect = (float(w) - 70.0, 30.0, float(w) - 52.0, h - 30.0)
-    caption = "ROBINSON PROJECTION — NATURAL EARTH"
-    cap_font = font(SANS, 10)
-    cap_w = tw(caption, cap_font)
-    cap_rect = (float(w) - cap_w - 12.0, h - 18.0,
-                float(w) - 8.0, h - 2.0)
-    forbidden = (label_rects + [left_rect, right_rect, cap_rect])
-    # Arcs (stylized Pacific routes) with a visible underlay: cobalt
-    # needs a paper halo on the ink panel, lime needs an ink halo on
-    # paper land. Each route is split at the antimeridian into two
-    # visible segments; the chip anchor sits on the cleaner segment.
-    anchors = {}
-    avoid = []
-    for num, _label, waypoints, anchor, color in ARCS:
-        segments, ends, mid = pacific_route(waypoints, anchor, proj,
-                                            w, h, warnings, num)
-        (ax, ay), (bx, by) = ends
-        anchors[num] = mid
-        avoid += [(ax, ay), (bx, by)]
-        under = PAPER if color == COBALT else INK
-        for route in segments:
-            out.append(
-                f'<polyline points="{pts_str(route)}" fill="none" '
-                f'stroke="{under}" stroke-width="5" '
-                f'stroke-linecap="round"/>')
-            out.append(
-                f'<polyline points="{pts_str(route)}" fill="none" '
-                f'stroke="{color}" stroke-width="3" '
-                f'stroke-linecap="round" stroke-dasharray="10 7"/>')
-        for ex, ey in ((ax, ay), (bx, by)):
-            out.append(
-                f'<rect x="{ex - 5:.1f}" y="{ey - 5:.1f}" width="10" '
-                f'height="10" fill="{color}" stroke="{PAPER}" '
-                f'stroke-width="1.5"/>')
-    # Pins and badges.
-    for num, _label, lat, lon, kind, color in MARKERS:
-        px, py = proj.project(lon, lat)
-        anchors[num] = (px, py)
-        avoid.append((px, py))
-        if kind == "pin":
-            # Subtle concentric radar/signal rings on conflict points.
-            out.append(
-                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="27" '
-                f'fill="none" stroke="{RED}" stroke-width="1.5" '
-                f'opacity="0.18"/>')
-            out.append(
-                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="21" '
-                f'fill="none" stroke="{RED}" stroke-width="1.5" '
-                f'opacity="0.35"/>')
-            out.append(
-                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="15" fill="none" '
-                f'stroke="{RED}" stroke-width="2"/>')
-            out.append(
-                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="9" '
-                f'fill="{RED}" stroke="{PAPER}" stroke-width="2"/>')
+        print(f"pin {label}: map px ({px:.0f}, {py:.0f})")
+        if dx == 0 and dy == 0:
+            inner.append(
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="8.5" '
+                f'fill="{color}" stroke="{PAPER}" stroke-width="1.5"/>')
+            lw = tw(label, pin_fnt)
+            inner.append(
+                f'<text x="{px - lw / 2:.1f}" y="{py + 3.5:.1f}" '
+                f'font-family="Liberation Sans" font-weight="bold" '
+                f'font-size="9" fill="{PAPER}">{esc(label)}</text>')
         else:
-            out.append(
-                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="10" '
-                f'fill="{LIME}" stroke="{INK}" stroke-width="2"/>')
-    # 02 KERCH STRAIT belongs in the clean upper-left Atlantic, left
-    # of the UK and over open ocean — never over Africa, never on the
-    # ATLANTIC OCEAN label or the 06 LONDON badge.
-    pref = {2: proj.project(-20, 58)}
-    chips = place_chips(anchors, avoid, w, h, forbidden=forbidden,
-                        preferred=pref)
-    color_of = {m[0]: m[5] for m in MARKERS}
-    color_of.update({a[0]: a[4] for a in ARCS})
-    name_of = {m[0]: m[1] for m in MARKERS}
-    name_of.update({a[0]: a[1] for a in ARCS})
-    for num, (rect, end) in chips.items():
-        px, py = anchors[num]
-        rx, ry, rx2, ry2 = rect
-        label = f"{num:02d} {name_of[num]}"
-        out.append(
-            f'<line x1="{end[0]:.1f}" y1="{end[1]:.1f}" x2="{px:.1f}" '
-            f'y2="{py:.1f}" stroke="{INK}" stroke-width="2"/>')
-        out.append(
-            f'<rect x="{rx:.1f}" y="{ry:.1f}" width="{rx2 - rx:.1f}" '
-            f'height="{ry2 - ry:.1f}" rx="5" fill="{PAPER}" '
-            f'stroke="{INK}" stroke-width="2"/>')
-        out.append(
-            f'<rect x="{rx:.1f}" y="{ry:.1f}" width="5" '
-            f'height="{ry2 - ry:.1f}" fill="{color_of[num]}"/>')
-        out.append(
-            f'<text x="{rx + 12:.1f}" y="{ry + 15.5:.1f}" '
-            f'font-family="Liberation Sans" font-weight="bold" '
-            f'font-size="12" fill="{INK}">{esc(label)}</text>')
-    # Side labels + caption (local map-canvas coordinates).
-    cy = h / 2
+            pw = tw(label, pin_fnt) + 10
+            rx, ry = px + dx, py + dy
+            cx, cy = rx + pw / 2, ry + 6
+            inner.append(
+                f'<line x1="{px:.1f}" y1="{py:.1f}" x2="{cx:.1f}" '
+                f'y2="{cy:.1f}" stroke="{INK}" stroke-width="1"/>')
+            inner.append(
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="3" '
+                f'fill="{color}" stroke="{PAPER}" stroke-width="1"/>')
+            inner.append(
+                f'<rect x="{rx:.1f}" y="{ry:.1f}" width="{pw:.1f}" '
+                f'height="12" rx="3" fill="{color}"/>')
+            lw = tw(label, pin_fnt)
+            inner.append(
+                f'<text x="{rx + 5:.1f}" y="{ry + 9:.1f}" '
+                f'font-family="Liberation Sans" font-weight="bold" '
+                f'font-size="9" fill="{PAPER}">{esc(label)}</text>')
+    inner.append('</g>')
+    out.append("\n".join(inner))
     out.append(
-        f'<text transform="rotate(-90 61 {cy:.0f})" x="61" y="{cy:.0f}" '
-        f'text-anchor="middle" font-family="Liberation Sans" '
-        f'font-weight="bold" font-size="13" letter-spacing="4" '
-        f'fill="{PAPER}">THE GLOBAL MAP</text>')
-    out.append(
-        f'<text transform="rotate(-90 {w - 61:.0f} {cy:.0f})" '
-        f'x="{w - 61:.0f}" y="{cy:.0f}" text-anchor="middle" '
-        f'font-family="Liberation Sans" font-weight="bold" '
-        f'font-size="13" letter-spacing="4" '
-        f'fill="{PAPER}">17.11.2026</text>')
-    out.append(
-        f'<text x="{w - 10:.1f}" y="{h - 6:.1f}" text-anchor="end" '
-        f'font-family="Liberation Sans" font-size="10" '
-        f'fill="{OCEAN_GREY}">{esc(caption)}</text>')
-    for num in sorted(anchors):
-        px, py = anchors[num]
-        print(f"anchor {num:02d}: map px ({px:.0f}, {py:.0f})")
-    return "\n".join(out), warnings
+        f'<text x="12" y="{h - 8:.0f}" font-family="Liberation Sans" '
+        f'font-size="9" fill="{SLATE}">'
+        f'ROBINSON PROJECTION \u00b7 NATURAL EARTH \u00b7 '
+        f'PINS H1\u2013H3, 01\u201312</text>')
+    return f'<g transform="translate({x0} {y0})">\n' + "\n".join(out) + "\n</g>"
 
+# ------------------------------------------------------- hero illustrations
+# Each hero scene is authored directly in a 318x104 local space and
+# placed with <g transform="translate(x,y)">. No text inside any
+# scene: the pictures must read without words.
 
-# ------------------------------------------------------- story illustrations
-# Each illustration is authored in a 100x100 local coordinate space and
-# placed with <g transform="translate(x,y) scale(s)">. No text inside
-# any pictogram: the pictures must read without words.
-
-def illo_summit():
-    """01 — ASEAN summit hall + protest banner, on Signal Red."""
+def scene_manila():
+    """H1 — ASEAN summit hall, flags, protest crowd (warm amber sky)."""
+    flags = "".join(
+        f'<line x1="{x}" y1="10" x2="{x}" y2="34" stroke="{INK}" '
+        f'stroke-width="2"/>'
+        f'<rect x="{x}" y="8" width="16" height="10" fill="{c}"/>'
+        for x, c in ((70, CRIMSON), (115, SLATE), (160, TEAL),
+                     (205, GOLD), (250, PAPER)))
+    heads = "".join(
+        f'<circle cx="{x}" cy="95" r="5.5" fill="{INK}"/>'
+        for x in range(16, 312, 30))
+    placards = "".join(
+        f'<rect x="{x - 7}" y="79" width="14" height="9" fill="{PAPER}" '
+        f'stroke="{CRIMSON}" stroke-width="1.5"/>'
+        for x in (46, 136, 226, 296))
     return f"""
-<rect x="0" y="0" width="100" height="100" fill="{RED}"/>
-<polygon points="14,40 50,16 86,40" fill="{PAPER}"/>
-<rect x="11" y="40" width="78" height="6" fill="{PAPER}"/>
-<rect x="17" y="48" width="7" height="28" fill="{PAPER}"/>
-<rect x="35" y="48" width="7" height="28" fill="{PAPER}"/>
-<rect x="58" y="48" width="7" height="28" fill="{PAPER}"/>
-<rect x="76" y="48" width="7" height="28" fill="{PAPER}"/>
-<rect x="9" y="78" width="82" height="5" fill="{PAPER}"/>
-<rect x="20" y="86" width="3" height="12" fill="{INK}"/>
-<rect x="77" y="86" width="3" height="12" fill="{INK}"/>
-<rect x="23" y="86" width="54" height="9" fill="{PAPER}"/>
-<circle cx="30" cy="91" r="1.8" fill="{RED}"/>
-<circle cx="40" cy="91" r="1.8" fill="{RED}"/>
-<circle cx="50" cy="91" r="1.8" fill="{RED}"/>
-<circle cx="60" cy="91" r="1.8" fill="{RED}"/>
-<circle cx="70" cy="91" r="1.8" fill="{RED}"/>"""
+<rect x="0" y="0" width="318" height="104" fill="{AMBER}"/>
+<circle cx="272" cy="24" r="13" fill="{CRIMSON}"/>
+{flags}
+<polygon points="40,58 159,30 278,58" fill="{INK}"/>
+<rect x="40" y="54" width="238" height="5" fill="{PAPER}"/>
+<rect x="40" y="58" width="238" height="30" fill="{INK}"/>
+<rect x="56" y="62" width="10" height="22" fill="{PAPER}"/>
+<rect x="92" y="62" width="10" height="22" fill="{PAPER}"/>
+<rect x="128" y="62" width="10" height="22" fill="{PAPER}"/>
+<rect x="164" y="62" width="10" height="22" fill="{PAPER}"/>
+<rect x="200" y="62" width="10" height="22" fill="{PAPER}"/>
+<rect x="236" y="62" width="10" height="22" fill="{PAPER}"/>
+<rect x="40" y="88" width="238" height="4" fill="{PAPER}"/>
+{placards}
+{heads}"""
 
 
-def illo_bridge():
-    """02 — fractured bridge span over dark waves, on Deep Ink."""
+def scene_kerch():
+    """H2 — fractured bridge span over dark waves, smoke plume."""
+    stars = "".join(
+        f'<circle cx="{x}" cy="{y}" r="1.5" fill="{PAPER}"/>'
+        for x, y in ((24, 12), (120, 8), (200, 14), (292, 10), (160, 6)))
     return f"""
-<rect x="0" y="0" width="100" height="100" fill="{INK}"/>
-<rect x="20" y="26" width="6" height="46" fill="{PAPER}"/>
-<rect x="74" y="26" width="6" height="46" fill="{PAPER}"/>
-<line x1="23" y1="26" x2="10" y2="50" stroke="{PAPER}" stroke-width="2"/>
-<line x1="23" y1="26" x2="40" y2="50" stroke="{PAPER}" stroke-width="2"/>
-<line x1="77" y1="26" x2="60" y2="50" stroke="{PAPER}" stroke-width="2"/>
-<line x1="77" y1="26" x2="90" y2="50" stroke="{PAPER}" stroke-width="2"/>
-<rect x="8" y="50" width="34" height="6" fill="{PAPER}"/>
-<rect x="58" y="50" width="34" height="6" fill="{PAPER}"/>
-<polyline points="42,50 46,58 50,50 54,58 58,50" fill="none"
- stroke="{RED}" stroke-width="4"/>
-<polyline points="8,82 20,77 32,82 44,77 56,82 68,77 80,82 92,77"
- fill="none" stroke="{PAPER}" stroke-width="2"/>
-<polyline points="8,91 20,86 32,91 44,86 56,91 68,86 80,91 92,86"
- fill="none" stroke="{PAPER}" stroke-width="2"/>"""
-
-
-def illo_tanker():
-    """03 — oil tanker silhouette + red blast wave, on Signal Red."""
-    return f"""
-<rect x="0" y="0" width="100" height="100" fill="{RED}"/>
-<polygon points="10,62 88,62 80,76 18,76" fill="{PAPER}"/>
-<rect x="58" y="46" width="18" height="16" fill="{PAPER}"/>
-<rect x="62" y="34" width="9" height="12" fill="{PAPER}"/>
-<rect x="20" y="56" width="30" height="6" fill="{PAPER}"/>
-<g stroke="{LIME}" stroke-width="3" stroke-linecap="round">
-<line x1="30" y1="14" x2="30" y2="24"/>
-<line x1="30" y1="36" x2="30" y2="46"/>
-<line x1="14" y1="30" x2="24" y2="30"/>
-<line x1="36" y1="30" x2="46" y2="30"/>
-<line x1="19" y1="19" x2="26" y2="26"/>
-<line x1="34" y1="34" x2="41" y2="41"/>
-<line x1="41" y1="19" x2="34" y2="26"/>
-<line x1="26" y1="34" x2="19" y2="41"/>
+<rect x="0" y="0" width="318" height="70" fill="{INK}"/>
+{stars}
+<rect x="0" y="70" width="318" height="34" fill="{SLATE}"/>
+<polyline points="0,84 20,80 40,84 60,80 80,84 100,80 120,84 140,80
+ 160,84 180,80 200,84 220,80 240,84 260,80 280,84 300,80 318,84"
+ fill="none" stroke="{PAPER}" stroke-width="2" opacity="0.7"/>
+<polyline points="0,95 20,91 40,95 60,91 80,95 100,91 120,95 140,91
+ 160,95 180,91 200,95 220,91 240,95 260,91 280,95 300,91 318,95"
+ fill="none" stroke="{PAPER}" stroke-width="2" opacity="0.5"/>
+<rect x="16" y="50" width="124" height="8" fill="{PAPER}"/>
+<rect x="178" y="50" width="124" height="8" fill="{PAPER}"/>
+<rect x="56" y="18" width="10" height="40" fill="{PAPER}"/>
+<rect x="252" y="18" width="10" height="40" fill="{PAPER}"/>
+<g stroke="{PAPER}" stroke-width="1.5">
+<line x1="61" y1="18" x2="16" y2="50"/>
+<line x1="61" y1="18" x2="140" y2="50"/>
+<line x1="257" y1="18" x2="178" y2="50"/>
+<line x1="257" y1="18" x2="302" y2="50"/>
 </g>
-<circle cx="30" cy="30" r="5" fill="{LIME}"/>
-<polyline points="8,86 20,81 32,86 44,81 56,86 68,81 80,86 92,81"
- fill="none" stroke="{PAPER}" stroke-width="2"/>"""
+<polyline points="140,50 148,58 152,50 158,60 164,52 170,58 178,50"
+ fill="none" stroke="{CRIMSON}" stroke-width="4"/>
+<circle cx="152" cy="34" r="9" fill="{GREY}" opacity="0.9"/>
+<circle cx="166" cy="26" r="11" fill="{GREY}" opacity="0.9"/>
+<circle cx="158" cy="16" r="8" fill="{GREY}" opacity="0.9"/>
+<polygon points="288,8 300,28 276,28" fill="{CRIMSON}"/>
+<rect x="287" y="14" width="2" height="7" fill="{PAPER}"/>
+<circle cx="288" cy="24" r="1.2" fill="{PAPER}"/>"""
 
+
+def scene_hormuz():
+    """H3 — oil tanker in the strait, blast star, alert indicators."""
+    return f"""
+<rect x="0" y="0" width="318" height="42" fill="{OCEAN}"/>
+<circle cx="40" cy="20" r="10" fill="{AMBER}"/>
+<rect x="0" y="42" width="318" height="62" fill="{TEAL}"/>
+<polyline points="0,56 20,52 40,56 60,52 80,56 100,52 120,56 140,52
+ 160,56 180,52 200,56 220,52 240,56 260,52 280,56 300,52 318,56"
+ fill="none" stroke="{PAPER}" stroke-width="1.5" opacity="0.5"/>
+<polyline points="0,96 20,92 40,96 60,92 80,96 100,92 120,96 140,92
+ 160,96 180,92 200,96 220,92 240,96 260,92 280,96 300,92 318,96"
+ fill="none" stroke="{PAPER}" stroke-width="1.5" opacity="0.5"/>
+<rect x="210" y="58" width="70" height="10" fill="{SLATE}"/>
+<rect x="252" y="50" width="16" height="8" fill="{SLATE}"/>
+<polygon points="36,68 282,68 266,88 52,88" fill="{INK}"/>
+<rect x="206" y="50" width="44" height="18" fill="{PAPER}"/>
+<rect x="212" y="54" width="8" height="6" fill="{INK}"/>
+<rect x="226" y="54" width="8" height="6" fill="{INK}"/>
+<rect x="240" y="54" width="8" height="6" fill="{INK}"/>
+<rect x="238" y="40" width="10" height="12" fill="{CRIMSON}"/>
+<circle cx="96" cy="28" r="32" fill="none" stroke="{PAPER}"
+ stroke-width="1.5" opacity="0.5"/>
+<circle cx="96" cy="28" r="24" fill="none" stroke="{PAPER}"
+ stroke-width="1.5" opacity="0.5"/>
+<polygon points="{star_points(96, 28, 18, 8)}" fill="{CRIMSON}"/>
+<polygon points="{star_points(96, 28, 10, 5)}" fill="{AMBER}"/>
+<polygon points="150,8 160,24 140,24" fill="{CRIMSON}"/>
+<rect x="149" y="12" width="2" height="6" fill="{PAPER}"/>
+<circle cx="150" cy="21" r="1.1" fill="{PAPER}"/>"""
+
+
+# ------------------------------------------------------- grid illustrations
+# Each illustration is authored in a 100x100 local coordinate space and
+# placed with <g transform="translate(x,y) scale(0.46)">. No text
+# inside any pictogram: the pictures must read without words.
 
 def illo_containers():
-    """04 — two interlocking shipping containers, on Electric Cobalt."""
+    """01 — two interlocking shipping containers, on slate."""
     return f"""
-<rect x="0" y="0" width="100" height="100" fill="{COBALT}"/>
+<rect x="0" y="0" width="100" height="100" fill="{SLATE}"/>
 <rect x="12" y="28" width="56" height="26" fill="{PAPER}"/>
 <rect x="32" y="56" width="56" height="26" fill="{PAPER}"/>
 <g stroke="{INK}" stroke-width="2">
@@ -568,17 +392,17 @@ def illo_containers():
 <line x1="60" y1="56" x2="60" y2="82"/>
 <line x1="74" y1="56" x2="74" y2="82"/>
 </g>
-<rect x="12" y="28" width="6" height="6" fill="{LIME}"/>
-<rect x="82" y="76" width="6" height="6" fill="{LIME}"/>
+<rect x="12" y="28" width="6" height="6" fill="{GOLD}"/>
+<rect x="82" y="76" width="6" height="6" fill="{GOLD}"/>
 <rect x="62" y="28" width="6" height="6" fill="{INK}"/>
 <rect x="32" y="56" width="6" height="6" fill="{INK}"/>"""
 
 
 def illo_chip():
-    """05 — geometric microchip with 5 blocked circuit pathways, on
-    Acid Lime."""
+    """02 — geometric microchip with 5 blocked circuit pathways, on
+    teal."""
     return f"""
-<rect x="0" y="0" width="100" height="100" fill="{LIME}"/>
+<rect x="0" y="0" width="100" height="100" fill="{TEAL}"/>
 <rect x="28" y="28" width="44" height="44" rx="4" fill="{INK}"/>
 <rect x="38" y="38" width="24" height="24" fill="{PAPER}"/>
 <g stroke="{PAPER}" stroke-width="3" stroke-linecap="round">
@@ -588,7 +412,7 @@ def illo_chip():
 <line x1="40" y1="72" x2="40" y2="84"/>
 <line x1="28" y1="50" x2="16" y2="50"/>
 </g>
-<g stroke="{RED}" stroke-width="3" stroke-linecap="round">
+<g stroke="{CRIMSON}" stroke-width="3" stroke-linecap="round">
 <line x1="45" y1="11" x2="55" y2="21"/>
 <line x1="55" y1="11" x2="45" y2="21"/>
 <line x1="82" y1="35" x2="92" y2="45"/>
@@ -603,8 +427,8 @@ def illo_chip():
 
 
 def illo_health():
-    """06 — medical cross and a server block splitting apart, on
-    Deep Ink."""
+    """03 — medical cross and a server block splitting apart, on
+    navy."""
     return f"""
 <rect x="0" y="0" width="100" height="100" fill="{INK}"/>
 <rect x="24" y="14" width="14" height="38" fill="{PAPER}"/>
@@ -612,7 +436,7 @@ def illo_health():
 <rect x="48" y="58" width="17" height="30" fill="{PAPER}"/>
 <rect x="78" y="58" width="17" height="30" fill="{PAPER}"/>
 <polyline points="73,58 69,66 74,72 69,80 73,88" fill="none"
- stroke="{RED}" stroke-width="4"/>
+ stroke="{CRIMSON}" stroke-width="4"/>
 <g stroke="{INK}" stroke-width="2">
 <line x1="51" y1="65" x2="62" y2="65"/>
 <line x1="51" y1="72" x2="62" y2="72"/>
@@ -621,14 +445,14 @@ def illo_health():
 <line x1="81" y1="72" x2="92" y2="72"/>
 <line x1="81" y1="79" x2="92" y2="79"/>
 </g>
-<circle cx="31" cy="66" r="4" fill="{RED}"/>"""
+<circle cx="31" cy="66" r="4" fill="{CRIMSON}"/>"""
 
 
 def illo_oil():
-    """07 — geometric oil reserve tank with Asian network nodes, on
-    Electric Cobalt."""
+    """04 — geometric oil reserve tank with Asian network nodes, on
+    slate."""
     return f"""
-<rect x="0" y="0" width="100" height="100" fill="{COBALT}"/>
+<rect x="0" y="0" width="100" height="100" fill="{SLATE}"/>
 <g stroke="{PAPER}" stroke-width="2">
 <line x1="18" y1="22" x2="38" y2="36"/>
 <line x1="82" y1="22" x2="62" y2="36"/>
@@ -640,38 +464,255 @@ def illo_oil():
 <rect x="34" y="80" width="5" height="8" fill="{PAPER}"/>
 <rect x="61" y="80" width="5" height="8" fill="{PAPER}"/>
 <rect x="14" y="89" width="72" height="3" fill="{PAPER}"/>
-<circle cx="18" cy="22" r="5" fill="{LIME}"/>
+<circle cx="18" cy="22" r="5" fill="{GOLD}"/>
 <circle cx="82" cy="22" r="5" fill="{PAPER}"/>
 <circle cx="84" cy="68" r="5" fill="{PAPER}"/>
-<circle cx="16" cy="68" r="5" fill="{LIME}"/>
-<rect x="38" y="54" width="24" height="4" fill="{COBALT}"/>
-<rect x="38" y="64" width="24" height="4" fill="{COBALT}"/>"""
+<circle cx="16" cy="68" r="5" fill="{GOLD}"/>
+<rect x="38" y="54" width="24" height="4" fill="{SLATE}"/>
+<rect x="38" y="64" width="24" height="4" fill="{SLATE}"/>"""
+
+
+def illo_barrel():
+    """05 — oil barrel with a rising price arrow, on crimson."""
+    return f"""
+<rect x="0" y="0" width="100" height="100" fill="{CRIMSON}"/>
+<rect x="22" y="32" width="40" height="46" rx="6" fill="{PAPER}"/>
+<rect x="22" y="44" width="40" height="4" fill="{CRIMSON}"/>
+<rect x="22" y="62" width="40" height="4" fill="{CRIMSON}"/>
+<polyline points="72,84 72,40" fill="none" stroke="{TEAL}"
+ stroke-width="6" stroke-linecap="round"/>
+<polyline points="62,50 72,36 82,50" fill="none" stroke="{TEAL}"
+ stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="8,92 20,87 32,92 44,87 56,92 68,87 80,92 92,87"
+ fill="none" stroke="{PAPER}" stroke-width="2"/>"""
+
+
+def illo_dove():
+    """06 — peace dove over an olive branch, on teal."""
+    return f"""
+<rect x="0" y="0" width="100" height="100" fill="{TEAL}"/>
+<ellipse cx="48" cy="52" rx="20" ry="11" fill="{PAPER}"
+ transform="rotate(-18 48 52)"/>
+<ellipse cx="46" cy="48" rx="12" ry="6" fill="{AMBER}"
+ transform="rotate(-18 46 48)"/>
+<circle cx="66" cy="40" r="7" fill="{PAPER}"/>
+<polygon points="72,38 80,41 72,44" fill="{GOLD}"/>
+<g stroke="{PAPER}" stroke-width="3" stroke-linecap="round">
+<line x1="30" y1="58" x2="16" y2="52"/>
+<line x1="30" y1="58" x2="14" y2="58"/>
+<line x1="30" y1="58" x2="16" y2="64"/>
+</g>
+<line x1="18" y1="86" x2="82" y2="86" stroke="{INK}" stroke-width="2"/>
+<ellipse cx="30" cy="82" rx="6" ry="2.5" fill="{PAPER}"
+ transform="rotate(-25 30 82)"/>
+<ellipse cx="44" cy="80" rx="6" ry="2.5" fill="{PAPER}"
+ transform="rotate(-25 44 80)"/>
+<ellipse cx="58" cy="82" rx="6" ry="2.5" fill="{PAPER}"
+ transform="rotate(25 58 82)"/>
+<ellipse cx="72" cy="80" rx="6" ry="2.5" fill="{PAPER}"
+ transform="rotate(25 72 80)"/>"""
+
+
+def illo_shield():
+    """07 — EU shield ringed by stars, on navy."""
+    return f"""
+<rect x="0" y="0" width="100" height="100" fill="{INK}"/>
+<path d="M50 10 L84 22 V52 C84 72 68 86 50 92 C32 86 16 72 16 52 V22 Z"
+ fill="{SLATE}" stroke="{GOLD}" stroke-width="3"/>
+<path d="M50 18 L76 28 V52 C76 67 64 78 50 83 C36 78 24 67 24 52 V28 Z"
+ fill="none" stroke="{GOLD}" stroke-width="1.5"/>
+<circle cx="50" cy="34" r="2.2" fill="{GOLD}"/>
+<circle cx="62" cy="40" r="2.2" fill="{GOLD}"/>
+<circle cx="66" cy="52" r="2.2" fill="{GOLD}"/>
+<circle cx="62" cy="64" r="2.2" fill="{GOLD}"/>
+<circle cx="50" cy="70" r="2.2" fill="{GOLD}"/>
+<circle cx="38" cy="64" r="2.2" fill="{GOLD}"/>
+<circle cx="34" cy="52" r="2.2" fill="{GOLD}"/>
+<circle cx="38" cy="40" r="2.2" fill="{GOLD}"/>"""
+
+
+def illo_globe():
+    """08 — globe with a leaf, on teal (climate)."""
+    return f"""
+<rect x="0" y="0" width="100" height="100" fill="{TEAL}"/>
+<circle cx="50" cy="46" r="30" fill="{PAPER}"/>
+<ellipse cx="50" cy="46" rx="12" ry="30" fill="none" stroke="{TEAL}"
+ stroke-width="2"/>
+<line x1="20" y1="46" x2="80" y2="46" stroke="{TEAL}" stroke-width="2"/>
+<ellipse cx="42" cy="34" rx="9" ry="5" fill="{TEAL}"
+ transform="rotate(-20 42 34)"/>
+<ellipse cx="60" cy="58" rx="8" ry="5" fill="{TEAL}"
+ transform="rotate(15 60 58)"/>
+<ellipse cx="70" cy="78" rx="11" ry="5" fill="{GOLD}"
+ transform="rotate(-30 70 78)"/>
+<line x1="62" y1="84" x2="56" y2="90" stroke="{GOLD}" stroke-width="2"/>
+<rect x="44" y="78" width="12" height="4" fill="{PAPER}"/>
+<rect x="36" y="84" width="28" height="4" fill="{PAPER}"/>"""
+
+
+def illo_factory():
+    """09 — chip on a factory conveyor, on slate (supply chain)."""
+    return f"""
+<rect x="0" y="0" width="100" height="100" fill="{SLATE}"/>
+<rect x="24" y="18" width="36" height="36" rx="4" fill="{INK}"/>
+<rect x="32" y="26" width="20" height="20" fill="{PAPER}"/>
+<g stroke="{PAPER}" stroke-width="2.5" stroke-linecap="round">
+<line x1="42" y1="18" x2="42" y2="10"/>
+<line x1="60" y1="30" x2="68" y2="30"/>
+<line x1="60" y1="42" x2="68" y2="42"/>
+<line x1="36" y1="54" x2="36" y2="62"/>
+<line x1="24" y1="36" x2="16" y2="36"/>
+</g>
+<circle cx="80" cy="30" r="10" fill="none" stroke="{GOLD}"
+ stroke-width="3"/>
+<g stroke="{GOLD}" stroke-width="2.5">
+<line x1="80" y1="16" x2="80" y2="24"/>
+<line x1="80" y1="36" x2="80" y2="44"/>
+<line x1="66" y1="30" x2="74" y2="30"/>
+<line x1="86" y1="30" x2="94" y2="30"/>
+</g>
+<rect x="14" y="72" width="72" height="8" fill="{INK}"/>
+<rect x="20" y="56" width="14" height="14" fill="{PAPER}"/>
+<rect x="20" y="61" width="14" height="3" fill="{TEAL}"/>
+<rect x="42" y="56" width="14" height="14" fill="{PAPER}"/>
+<rect x="42" y="61" width="14" height="3" fill="{TEAL}"/>
+<rect x="64" y="56" width="14" height="14" fill="{PAPER}"/>
+<rect x="64" y="61" width="14" height="3" fill="{TEAL}"/>"""
+
+
+def illo_flags():
+    """10 — Mexico and UK flags on poles, on crimson."""
+    return f"""
+<rect x="0" y="0" width="100" height="100" fill="{CRIMSON}"/>
+<line x1="28" y1="10" x2="28" y2="90" stroke="{PAPER}" stroke-width="3"/>
+<rect x="28" y="10" width="11" height="20" fill="{TEAL}"/>
+<rect x="39" y="10" width="11" height="20" fill="{PAPER}"/>
+<rect x="50" y="10" width="11" height="20" fill="{CRIMSON}"
+ stroke="{PAPER}" stroke-width="1"/>
+<line x1="72" y1="10" x2="72" y2="90" stroke="{PAPER}" stroke-width="3"/>
+<rect x="72" y="10" width="24" height="20" fill="{INK}"/>
+<rect x="82" y="10" width="4" height="20" fill="{PAPER}"/>
+<rect x="72" y="18" width="24" height="4" fill="{PAPER}"/>
+<rect x="83" y="10" width="2" height="20" fill="{CRIMSON}"/>
+<rect x="72" y="19" width="24" height="2" fill="{CRIMSON}"/>
+<rect x="8" y="92" width="84" height="3" fill="{PAPER}"/>"""
+
+
+def illo_bank():
+    """11 — classical bank building with a rising rate arrow, on
+    navy."""
+    return f"""
+<rect x="0" y="0" width="100" height="100" fill="{INK}"/>
+<polygon points="18,34 50,16 82,34" fill="{PAPER}"/>
+<rect x="24" y="38" width="6" height="34" fill="{PAPER}"/>
+<rect x="38" y="38" width="6" height="34" fill="{PAPER}"/>
+<rect x="56" y="38" width="6" height="34" fill="{PAPER}"/>
+<rect x="70" y="38" width="6" height="34" fill="{PAPER}"/>
+<rect x="16" y="72" width="68" height="6" fill="{PAPER}"/>
+<rect x="12" y="80" width="76" height="4" fill="{PAPER}"/>
+<polyline points="90,70 90,38" fill="none" stroke="{CRIMSON}"
+ stroke-width="5" stroke-linecap="round"/>
+<polyline points="83,46 90,36 97,46" fill="none" stroke="{CRIMSON}"
+ stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>"""
+
+
+def illo_tent():
+    """12 — aid tent under falling snow, on slate."""
+    return f"""
+<rect x="0" y="0" width="100" height="100" fill="{SLATE}"/>
+<polygon points="14,78 50,34 86,78" fill="{PAPER}"/>
+<polygon points="42,78 50,58 58,78" fill="{INK}"/>
+<g stroke="{PAPER}" stroke-width="2" stroke-linecap="round">
+<line x1="20" y1="16" x2="20" y2="26"/>
+<line x1="15" y1="21" x2="25" y2="21"/>
+<line x1="16.5" y1="17.5" x2="23.5" y2="24.5"/>
+<line x1="23.5" y1="17.5" x2="16.5" y2="24.5"/>
+<line x1="78" y1="12" x2="78" y2="22"/>
+<line x1="73" y1="17" x2="83" y2="17"/>
+<line x1="74.5" y1="13.5" x2="81.5" y2="20.5"/>
+<line x1="81.5" y1="13.5" x2="74.5" y2="20.5"/>
+<line x1="88" y1="48" x2="88" y2="58"/>
+<line x1="83" y1="53" x2="93" y2="53"/>
+<line x1="84.5" y1="49.5" x2="91.5" y2="56.5"/>
+<line x1="91.5" y1="49.5" x2="84.5" y2="56.5"/>
+</g>
+<rect x="8" y="82" width="84" height="4" fill="{PAPER}"/>"""
 
 
 ILLOS = {
-    1: illo_summit, 2: illo_bridge, 3: illo_tanker, 4: illo_containers,
-    5: illo_chip, 6: illo_health, 7: illo_oil,
+    1: illo_containers, 2: illo_chip, 3: illo_health, 4: illo_oil,
+    5: illo_barrel, 6: illo_dove, 7: illo_shield, 8: illo_globe,
+    9: illo_factory, 10: illo_flags, 11: illo_bank, 12: illo_tent,
 }
 
-
 # ------------------------------------------------------------------- stories
-# (number, tag, tag colour, headline, body copy — Fura's exact words)
+# (number, tag, tag colour, headline, body copy — every fact verified
+# against live 17 November 2026 reporting; see the builder's report.)
+HEROES = [
+    (1, "GEOPOLITICS", CRIMSON,
+     "49th ASEAN Summit Opens in Manila as Trump Arrives",
+     "ASEAN leaders open the 49th summit in Manila as protests greet "
+     "Trump's arrival.",
+     scene_manila),
+    (2, "CONFLICT", CRIMSON,
+     "Ukrainian Strike Severely Damages Kerch Bridge",
+     "The strike collapses a span and halts traffic; two killed, "
+     "officials say.",
+     scene_kerch),
+    (3, "MIDDLE EAST", CRIMSON,
+     "Qeshm Blasts & Tanker Attacks Rock Hormuz",
+     "Blasts rock Qeshm Island and tankers are hit in the strait, "
+     "raising fears of a wider clash.",
+     scene_hormuz),
+]
+
 STORIES = [
-    (1, "MANILA", RED, "01 — ASEAN UNDER PRESSURE",
-     "49th ASEAN Summit opens in Manila as Trump arrives amid protests."),
-    (2, "KERCH", RED, "02 — KERCH BRIDGE HIT",
-     "Ukrainian strikes severely damage the Kerch Bridge."),
-    (3, "HORMUZ", RED, "03 — HORMUZ ON EDGE",
-     "Qeshm explosions and tanker attacks heighten Iran–US tensions."),
-    (4, "TRADE", COBALT, "04 — $280M TARIFF SHIFT",
-     "China and Canada agree to cut tariffs ahead of APEC."),
-    (5, "AI TECH", LIME, "05 — AI CHIP CRACKDOWN",
-     "US tightens chip licensing for five countries and investigates "
-     "Singapore's Megaspeed."),
-    (6, "UK HEALTH", LIME, "06 — NHS–PALANTIR EXIT",
-     "UK government moves to end the NHS contract by 2029."),
-    (7, "ENERGY", LIME, "07 — ASIA'S OIL SHIELD",
-     "Japan proposes a regional pact for shared oil reserves."),
+    (1, "TRADE", SLATE, "China\u2013Canada Cut $280M Tariffs",
+     "Ottawa and Beijing agree C$400M in tariff cuts on pork and "
+     "seafood ahead of APEC in Shenzhen."),
+    (2, "TECH", TEAL, "US Curbs AI Chips in 5 Nations",
+     "Licences now required for advanced chips to five nations; "
+     "Megaspeed faces a criminal probe."),
+    (3, "UK", CRIMSON, "UK Ends NHS Palantir Deal by 2029",
+     "The NHS data-platform contract with Palantir ends in March "
+     "2029; the break clause was skipped."),
+    (4, "ENERGY", TEAL, "Japan Proposes Asian Oil Pact",
+     "Tokyo proposes an Asia oil security task force \u2014 an Asian "
+     "IEA \u2014 at the Manila summit."),
+    (5, "MARKETS", CRIMSON, "Brent Jumps to $93.14 a Barrel",
+     "Brent settles up $0.70 at $93.14; WTI gains $0.29 to $86.01 as "
+     "Hormuz transit falls by half."),
+    (6, "DIPLOMACY", SLATE, "Gaza Ceasefire Warning at UN",
+     "The Board of Peace warns the UN the Gaza ceasefire \u2018cannot "
+     "be sustained\u2019 without visible gains."),
+    (7, "EUROPE", INK, "EU Defence Ministers Meet in Brussels",
+     "Kallas chairs talks on Ukraine air defence; Kyiv\u2019s Khmara "
+     "and the US\u2019s Colby join the session."),
+    (8, "CLIMATE", TEAL, "COP31 Draft Deal Divides Ministers",
+     "An 18-page draft in Antalya seeks a fossil-fuel shift and "
+     "$120B yearly adaptation finance by 2035."),
+    (9, "TECH", SLATE, "Nvidia Locks In AI Supply Chain",
+     "Nvidia signs multiyear deals with Kinsus, SPIL and Samsung; "
+     "Kinsus lifts substrate capacity 3.5\u00d7."),
+    (10, "LATAM", CRIMSON, "Mexico\u2013UK Summit Meets in London",
+     "London hosts a Mexico\u2013UK summit on trade after Mexico "
+     "ratified the UK\u2019s CPTPP accession."),
+    (11, "ECONOMY", INK, "Fed\u2019s Williams: Rates May Rise",
+     "New York Fed chief Williams says the Fed could keep raising "
+     "rates; funds rate stands at 3.75\u20134.00%."),
+    (12, "AID", TEAL, "Winter Aid Warning for Gaza",
+     "WFP and IOM warn 1.7M Gazans are displaced and 1.4M face acute "
+     "hunger; IOM is $173M short."),
+]
+
+# (big number, label, colour) for the Key Themes panel.
+STATS = [
+    ("$280M", "China\u2013Canada tariff cuts", CRIMSON),
+    ("$93.14", "Brent crude, Tuesday close", CRIMSON),
+    ("49th", "ASEAN Summit in Manila", INK),
+    ("5", "Nations under AI chip curbs", INK),
+    ("2029", "NHS\u2013Palantir contract ends", INK),
+    ("$120B/yr", "COP31 adaptation goal by 2035", TEAL),
 ]
 
 
@@ -679,117 +720,126 @@ def tag_pill(x, y, tag, color):
     """Coloured category pill; returns its width."""
     fnt = font(SANS_B, 11)
     pw = tw(tag, fnt) + 18
-    fill = INK if color == LIME else PAPER
     return (f'<rect x="{x:.0f}" y="{y:.0f}" width="{pw:.0f}" height="16" '
             f'rx="8" fill="{color}"/>'
             f'<text x="{x + 9:.0f}" y="{y + 12:.0f}" '
             f'font-family="Liberation Sans" font-weight="bold" '
-            f'font-size="11" fill="{fill}">{esc(tag)}</text>'), pw
+            f'font-size="11" fill="{PAPER}">{esc(tag)}</text>'), pw
 
 
-def module_wide(x, y, w, h, num, tag, color, head, body, warnings):
-    """Wide module: square illustration left, tag + headline + body."""
+def hero_card(x, y, w, h, num, tag, color, head, body, scene_fn,
+              warnings):
+    """Hero banner: full-width scene, tag pill, bold title, 2-line
+    summary."""
     out = []
-    s = h / 100.0
-    out.append(f'<g transform="translate({x:.0f} {y:.0f}) '
-               f'scale({s:.3f})">{ILLOS[num]()}</g>')
-    x0 = x + h + 14
-    text_w = w - h - 14
-    pill, _ = tag_pill(x0, y + 2, tag, color)
+    out.append(f'<rect x="{x:.0f}" y="{y:.0f}" width="{w:.0f}" '
+               f'height="{h:.0f}" fill="{CARD}" stroke="{INK}" '
+               f'stroke-width="1.5"/>')
+    out.append(f'<g transform="translate({x:.0f} {y:.0f})">'
+               f'{scene_fn()}</g>')
+    pill, _ = tag_pill(x + 10, y + 112, f"H{num} \u00b7 {tag}", color)
     out.append(pill)
-    head_fnt = font(SANS_B, 21)
-    if tw(head, head_fnt) > text_w:
-        warnings.append(f"module {num:02d} headline too wide")
-    out.append(
-        f'<text x="{x0:.0f}" y="{y + 39:.0f}" '
-        f'font-family="Liberation Sans" font-weight="bold" '
-        f'font-size="21" fill="{INK}">{esc(head)}</text>')
-    body_fnt = font(SANS, 17)
-    lines = wrap(body, body_fnt, text_w)
+    head_fnt = font(SANS_B, 19)
+    lines = wrap(head, head_fnt, w - 20)
     if len(lines) > 2:
-        warnings.append(f"module {num:02d} body wraps to "
+        warnings.append(f"hero {num} headline wraps to "
                         f"{len(lines)} lines (max 2)")
     for i, line in enumerate(lines[:2]):
         out.append(
-            f'<text x="{x0:.0f}" y="{y + 57 + i * 20:.0f}" '
-            f'font-family="Liberation Sans" font-size="17" '
-            f'fill="{INK}">{esc(line)}</text>')
+            f'<text x="{x + 10:.0f}" y="{y + 150 + i * 21:.0f}" '
+            f'font-family="Liberation Sans" font-weight="bold" '
+            f'font-size="19" fill="{INK}">{esc(line)}</text>')
+    body_fnt = font(SANS, 13)
+    body_lines = wrap(body, body_fnt, w - 20)
+    if len(body_lines) > 2:
+        warnings.append(f"hero {num} body wraps to "
+                        f"{len(body_lines)} lines (max 2)")
+    for i, line in enumerate(body_lines[:2]):
+        out.append(
+            f'<text x="{x + 10:.0f}" y="{y + 190 + i * 14:.0f}" '
+            f'font-family="Liberation Sans" font-size="13" '
+            f'fill="{SLATE}">{esc(line)}</text>')
     return "\n".join(out)
 
 
-def module_narrow(x, y, w, h, num, color, head, body, warnings):
-    """Narrow module: 64px illustration left, coloured number in the
-    headline, body below. No tag pill — the coloured number and the
-    illustration's colour block carry the category."""
+def grid_card(x, y, w, h, num, tag, color, head, body, warnings):
+    """Dense grid card: colour top bar, tag, 46px illustration badge,
+    bold 2-line headline, 3-line factual summary."""
     out = []
-    out.append(f'<g transform="translate({x:.0f} {y + 8:.0f}) '
-               f'scale(0.64)">{ILLOS[num]()}</g>')
-    x0 = x + 72
-    text_w = w - 72
+    out.append(f'<rect x="{x:.0f}" y="{y:.0f}" width="{w:.0f}" '
+               f'height="{h:.0f}" fill="{CARD}" stroke="{INK}" '
+               f'stroke-width="1.5"/>')
+    out.append(f'<rect x="{x:.0f}" y="{y:.0f}" width="{w:.0f}" '
+               f'height="5" fill="{color}"/>')
+    out.append(
+        f'<text x="{x + 10:.0f}" y="{y + 24:.0f}" '
+        f'font-family="Liberation Sans" font-weight="bold" '
+        f'font-size="10" letter-spacing="1" fill="{color}">'
+        f'{num:02d} \u00b7 {esc(tag)}</text>')
+    out.append(f'<g transform="translate({x + 10:.0f} {y + 32:.0f}) '
+               f'scale(0.46)">{ILLOS[num]()}</g>')
     head_fnt = font(SANS_B, 15)
-    lines = wrap(head, head_fnt, text_w)
+    lines = wrap(head, head_fnt, w - 74)
     if len(lines) > 2:
-        warnings.append(f"module {num:02d} headline wraps to "
+        warnings.append(f"card {num:02d} headline wraps to "
                         f"{len(lines)} lines (max 2)")
     for i, line in enumerate(lines[:2]):
-        ly = y + 17 + i * 18
-        if i == 0 and line.startswith(f"{num:02d}"):
-            # Number in a pill badge of its category colour: the v4
-            # lime "06" on paper was invisible; the pill keeps the
-            # colour code with razor-sharp contrast for every number.
-            num_txt = f"{num:02d}"
-            num_w = tw(num_txt, head_fnt)
-            num_fill = INK if color == LIME else PAPER
-            out.append(
-                f'<rect x="{x0 - 2:.0f}" y="{ly - 13:.0f}" '
-                f'width="{num_w + 10:.0f}" height="17" rx="4" '
-                f'fill="{color}"/>')
-            out.append(
-                f'<text x="{x0 + 3:.0f}" y="{ly:.0f}" '
-                f'font-family="Liberation Sans" font-weight="bold" '
-                f'font-size="15" fill="{num_fill}">'
-                f'{esc(num_txt)}</text>')
-            out.append(
-                f'<text x="{x0 + num_w + 10:.0f}" y="{ly:.0f}" '
-                f'font-family="Liberation Sans" font-weight="bold" '
-                f'font-size="15" fill="{INK}">'
-                f'{esc(line[2:])}</text>')
-        else:
-            out.append(
-                f'<text x="{x0:.0f}" y="{ly:.0f}" '
-                f'font-family="Liberation Sans" font-weight="bold" '
-                f'font-size="15" fill="{INK}">{esc(line)}</text>')
-    body_fnt = font(SANS, 16)
-    body_lines = wrap(body, body_fnt, text_w)
+        out.append(
+            f'<text x="{x + 64:.0f}" y="{y + 48 + i * 17:.0f}" '
+            f'font-family="Liberation Sans" font-weight="bold" '
+            f'font-size="15" fill="{INK}">{esc(line)}</text>')
+    body_fnt = font(SANS, 13)
+    body_lines = wrap(body, body_fnt, w - 20)
     if len(body_lines) > 3:
-        warnings.append(f"module {num:02d} body wraps to "
+        warnings.append(f"card {num:02d} body wraps to "
                         f"{len(body_lines)} lines (max 3)")
-    by = y + 17 + len(lines[:2]) * 18 + 12
     for i, line in enumerate(body_lines[:3]):
         out.append(
-            f'<text x="{x0:.0f}" y="{by + i * 17:.0f}" '
-            f'font-family="Liberation Sans" font-size="16" '
+            f'<text x="{x + 10:.0f}" y="{y + 96 + i * 15:.0f}" '
+            f'font-family="Liberation Sans" font-size="13" '
             f'fill="{INK}">{esc(line)}</text>')
     return "\n".join(out)
 
 
-def module_full(x, y, w, h, num, tag, color, head, body, warnings):
-    """Full-width closing module: wide layout plus a compact summary
-    strip in the space the orphan lime "07" square used to take."""
-    out = [module_wide(x, y, w - 112, h, num, tag, color, head, body,
-                       warnings)]
-    bx = x + w - 100
-    out.append(f'<rect x="{bx:.0f}" y="{y:.0f}" width="100" '
-               f'height="{h:.0f}" fill="{LIME}"/>')
-    strip = ["7 STORIES", "5 REGIONS", "17 NOV 2026"]
-    fnt = font(SANS_B, 13)
-    for i, line in enumerate(strip):
-        lw = tw(line, fnt)
+def key_themes_panel(x, y, w, h):
+    """Key Themes & Daily Numbers: 6 verified stats + closing line +
+    footer."""
+    out = []
+    out.append(f'<rect x="{x:.0f}" y="{y:.0f}" width="{w:.0f}" '
+               f'height="{h:.0f}" fill="{CARD}" stroke="{INK}" '
+               f'stroke-width="1.5"/>')
+    out.append(f'<rect x="{x:.0f}" y="{y:.0f}" width="{w:.0f}" '
+               f'height="5" fill="{INK}"/>')
+    out.append(
+        f'<text x="{x + 16:.0f}" y="{y + 26:.0f}" '
+        f'font-family="Liberation Sans" font-weight="bold" '
+        f'font-size="15" fill="{INK}">'
+        f'KEY THEMES &amp; DAILY NUMBERS</text>')
+    for i, (num, label, color) in enumerate(STATS):
+        cx = x + 16 + (i % 2) * 288
+        ry = y + 34 + (i // 2) * 40
         out.append(
-            f'<text x="{bx + 50 - lw / 2:.0f}" '
-            f'y="{y + 30 + i * 18:.0f}" font-family="Liberation Sans" '
-            f'font-weight="bold" font-size="13" '
-            f'fill="{INK}">{esc(line)}</text>')
+            f'<text x="{cx:.0f}" y="{ry + 19:.0f}" '
+            f'font-family="Liberation Sans" font-weight="bold" '
+            f'font-size="19" fill="{color}">{esc(num)}</text>')
+        out.append(
+            f'<text x="{cx:.0f}" y="{ry + 35:.0f}" '
+            f'font-family="Liberation Sans" font-size="11" '
+            f'fill="{SLATE}">{esc(label)}</text>')
+    out.append(f'<line x1="{x + 16:.0f}" y1="{y + 158:.0f}" '
+               f'x2="{x + w - 16:.0f}" y2="{y + 158:.0f}" '
+               f'stroke="{SLATE}" stroke-width="1"/>')
+    out.append(
+        f'<text x="{x + 16:.0f}" y="{y + 172:.0f}" '
+        f'font-family="Liberation Sans" font-style="italic" '
+        f'font-size="11" fill="{SLATE}">'
+        f'15 stories \u00b7 3 flashpoints \u00b7 12 in depth \u2014 every '
+        f'figure verified from 17 Nov 2026 reporting.</text>')
+    out.append(
+        f'<text x="{x + w - 16:.0f}" y="{y + 187:.0f}" '
+        f'text-anchor="end" font-family="Liberation Sans" '
+        f'font-weight="bold" font-size="11" fill="{INK}">'
+        f'@seannbeez \u00b7 17 November 2026</text>')
     return "\n".join(out)
 
 
@@ -803,88 +853,52 @@ def main():
     parts.append(f'<rect x="0" y="0" width="{W}" height="{H}" '
                  f'fill="{PAPER}"/>')
 
-    # ---- masthead: kicker, stacked headline, sub-deck, rule
-    parts.append(f'<rect x="32" y="30" width="14" height="14" '
-                 f'fill="{RED}"/>')
+    # ---- masthead: kicker, serif title, subtitle, double rule
     parts.append(
-        f'<text x="54" y="44" font-family="Liberation Sans" '
-        f'font-weight="bold" font-size="19" fill="{INK}">'
-        f'GLOBAL NEWS / 17 NOVEMBER 2026</text>')
+        f'<text x="24" y="40" font-family="Liberation Sans" '
+        f'font-weight="bold" font-size="13" letter-spacing="2" '
+        f'fill="{INK}">TUESDAY \u00b7 17 NOVEMBER 2026</text>')
     parts.append(
-        f'<text x="787" y="44" text-anchor="end" '
+        f'<text x="1000" y="40" text-anchor="end" '
         f'font-family="Liberation Sans" font-weight="bold" '
-        f'font-size="19" fill="{INK}">TUESDAY EDITION</text>')
-    size = fit_size("ON EDGE.", SANS_B, 140, 755)
-    top1 = 50
-    base1 = top1 + round(size * 0.95)
-    top2 = top1 + size + 4
-    base2 = top2 + round(size * 0.95)
+        f'font-size="13" letter-spacing="2" fill="{INK}">'
+        f'15 STORIES \u00b7 5 REGIONS</text>')
+    title = "The World on 17 November 2026"
+    size = fit_size(title, SERIF_B, 56, 976)
     parts.append(
-        f'<text x="32" y="{base1}" font-family="Liberation Sans" '
+        f'<text x="24" y="92" font-family="Liberation Serif" '
         f'font-weight="bold" font-size="{size}" fill="{INK}">'
-        f'WORLD</text>')
-    edge_w = tw("ON EDGE", font(SANS_B, size))
+        f'{esc(title)}</text>')
     parts.append(
-        f'<text x="32" y="{base2}" font-family="Liberation Sans" '
-        f'font-weight="bold" font-size="{size}" fill="{INK}">'
-        f'ON EDGE</text>')
-    parts.append(
-        f'<text x="{32 + edge_w:.0f}" y="{base2}" '
-        f'font-family="Liberation Sans" font-weight="bold" '
-        f'font-size="{size}" fill="{RED}">.</text>')
-    sub_base = base2 + 24
-    parts.append(f'<rect x="32" y="{sub_base - 14}" width="56" '
-                 f'height="10" fill="{COBALT}"/>')
-    parts.append(
-        f'<text x="100" y="{sub_base}" font-family="Liberation Sans" '
-        f'font-weight="bold" font-size="20" fill="{INK}">'
-        f'7 STORIES THAT DEFINE THE DAY</text>')
-    rule_y = sub_base + 14
-    parts.append(f'<line x1="32" y1="{rule_y}" x2="787" y2="{rule_y}" '
-                 f'stroke="{INK}" stroke-width="2"/>')
+        f'<text x="24" y="118" font-family="Liberation Sans" '
+        f'font-size="16" fill="{SLATE}">'
+        f'A Comprehensive Visual Briefing of Tuesday\u2019s Key Global '
+        f'Developments</text>')
+    parts.append(f'<line x1="24" y1="128" x2="1000" y2="128" '
+                 f'stroke="{INK}" stroke-width="3"/>')
+    parts.append(f'<line x1="24" y1="133" x2="1000" y2="133" '
+                 f'stroke="{INK}" stroke-width="1"/>')
 
-    # ---- hero: full-bleed ink panel with the Robinson world map
-    hero_y = rule_y + 12
-    hero_h = 235
-    parts.append(f'<rect x="0" y="{hero_y}" width="{W}" '
-                 f'height="{hero_h}" fill="{INK}"/>')
-    frag, map_warnings = hero_map_svg(0, 0, W, hero_h)
-    warnings += map_warnings
-    parts.append(f'<g transform="translate(0 {hero_y})">\n{frag}\n</g>')
+    # ---- row 1: three hero banners
+    hero_y, hero_h, hero_w = 144, 208, 318
+    for i, (num, tag, color, head, body, scene_fn) in enumerate(HEROES):
+        x = 24 + i * (hero_w + 11)
+        parts.append(hero_card(x, hero_y, hero_w, hero_h, num, tag,
+                               color, head, body, scene_fn, warnings))
 
-    # ---- seven story modules: four asymmetric rows, no boxes
-    mod_y = hero_y + hero_h + 16
-    row_h, gap = 87, 8
-    rows = [
-        [(1, "wide", 32, 470), (2, "narrow", 518, 269)],
-        [(3, "narrow", 32, 269), (4, "wide", 317, 470)],
-        [(5, "wide", 32, 470), (6, "narrow", 518, 269)],
-        [(7, "full", 32, 755)],
-    ]
-    by_num = {s[0]: s for s in STORIES}
-    for r, row in enumerate(rows):
-        y = mod_y + r * (row_h + gap)
-        for num, kind, x, w in row:
-            _, tag, color, head, body = by_num[num]
-            if kind == "wide":
-                parts.append(module_wide(x, y, w, row_h, num, tag,
-                                         color, head, body, warnings))
-            elif kind == "narrow":
-                parts.append(module_narrow(x, y, w, row_h, num, color,
-                                           head, body, warnings))
-            else:
-                parts.append(module_full(x, y, w, row_h, num, tag,
-                                         color, head, body, warnings))
-    footer_y = mod_y + 4 * row_h + 3 * gap + 14
-    parts.append(
-        f'<text x="32" y="{footer_y}" font-family="Liberation Sans" '
-        f'font-weight="bold" font-size="10" fill="{INK}">'
-        f'THE WORLD / DAILY BRIEF — 17 NOV 2026</text>')
-    parts.append(
-        f'<text x="787" y="{footer_y}" text-anchor="end" '
-        f'font-family="Liberation Sans" font-weight="bold" '
-        f'font-size="10" fill="{INK}">'
-        f'CURATED GLOBAL INTELLIGENCE · @SEANNBEEZ</text>')
+    # ---- rows 2-4: dense 12-story grid, 4 x 3
+    grid_y0, card_w, card_h = 362, 236.5, 140
+    for i, (num, tag, color, head, body) in enumerate(STORIES):
+        row, col = divmod(i, 4)
+        x = 24 + col * (card_w + 10)
+        y = grid_y0 + row * (card_h + 10)
+        parts.append(grid_card(x, y, card_w, card_h, num, tag, color,
+                               head, body, warnings))
+
+    # ---- bottom row: world map widget + key themes panel
+    parts.append(map_widget_svg(24, 812, 390, 192))
+    parts.append(key_themes_panel(424, 812, 576, 192))
+
     parts.append('</svg>')
     svg = "\n".join(parts)
     (HERE / "entry.svg").write_text(svg, encoding="utf-8")
@@ -894,18 +908,30 @@ def main():
                      output_width=W, output_height=H)
     img = Image.open(HERE / "entry.png")
     assert img.size == (W, H), f"bad size {img.size}"
-    # The base render is the deliverable: no grain pass (see docstring).
     img.save(HERE / "entry.png", optimize=True)
     size_bytes = os.path.getsize(HERE / "entry.png")
-    import hashlib
+    print(f"base render: {size_bytes} bytes")
+    if size_bytes > 245 * 1024:
+        # Deterministic palette pass: flat vector art quantizes
+        # cleanly to 256 colours; re-save and re-check.
+        img = img.convert("P", palette=Image.ADAPTIVE, colors=256)
+        img.save(HERE / "entry.png", optimize=True)
+        size_bytes = os.path.getsize(HERE / "entry.png")
+        print(f"palette 256 render: {size_bytes} bytes")
+    if size_bytes > 245 * 1024:
+        img = Image.open(HERE / "entry.png").convert("RGB")
+        img = img.convert("P", palette=Image.ADAPTIVE, colors=128)
+        img.save(HERE / "entry.png", optimize=True)
+        size_bytes = os.path.getsize(HERE / "entry.png")
+        print(f"palette 128 render: {size_bytes} bytes")
+    final = Image.open(HERE / "entry.png")
+    assert final.size == (W, H), f"bad size {final.size}"
     sha = hashlib.sha256((HERE / "entry.png").read_bytes()).hexdigest()
-    print(f"wrote entry.png {img.size} {size_bytes} bytes sha256 {sha}")
-    print(f"headline size {size}px, hero y {hero_y}, modules y "
-          f"{mod_y}, footer y {footer_y}")
-    if size_bytes >= 240 * 1024:
-        print(f"WARNING: entry.png {size_bytes} bytes >= 240 KiB")
-    if footer_y > 1022:
-        print(f"WARNING: footer y {footer_y} too low")
+    print(f"wrote entry.png {final.size} {size_bytes} bytes "
+          f"sha256 {sha}")
+    print(f"masthead title size {size}px")
+    if size_bytes >= 1024 * 1024:
+        print(f"WARNING: entry.png {size_bytes} bytes >= 1 MiB")
     for warn in warnings:
         print("WARNING:", warn)
     if warnings:
