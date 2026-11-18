@@ -1,4 +1,4 @@
-"""Draw the World News Brief v6 — dense 1024x1024 broadsheet.
+"""Draw the World News Brief v7 — dense 1024x1024 broadsheet.
 
 Deterministic SVG-first rendering via CairoSVG at 1024x1024:
 masthead, three illustrated hero banners, a dense 12-story editorial
@@ -8,23 +8,34 @@ with the same Liberation fonts CairoSVG resolves, so wrapping and
 fitting are exact. No image model, no network, no timestamps, no
 randomness.
 
+v7 is a surgical polish of v6 (Fura's three fixes): card 01 headline
+and body unified on C$400M (~US$280M); the Key Themes panel rebuilt
+as a balanced 3-column x 2-row executive stat grid with divider
+rules; richer hero banners (data callout tags, horizon lines, subtle
+shading bands). Every other fact, headline and figure is v6 as
+verified.
+
 Palette: warm newsprint #FAF8F3, dark navy #14213D, slate #2B4162,
 crimson #C1121F, teal #1D6F72, pale-blue ocean #E3EEF5. All 15
 stories (3 heroes + 12 grid) are Tuesday 17 November 2026 news
 verified against live reporting; every figure on the poster comes
 from the Phase 1 verification (see the builder's report).
 
-Output: entry.png (1024x1024, target 210-245 KB, hard cap 1 MiB)
-+ entry.svg (the source). If the base render exceeds 245 KB it is
-quantized to a 256-colour adaptive palette (deterministic, visually
-lossless on this flat vector art) and re-saved.
+Output: entry.png (1024x1024, target 200-240 KB, hard cap 1 MiB)
++ entry.svg (the source). If the base render exceeds 240 KB it is
+first re-compressed losslessly with Zopfli (identical pixels, same
+bytes out of main.py) and only if still over is it quantized to a
+256-colour adaptive palette (deterministic, visually lossless on
+this flat vector art) and re-saved.
 """
 
 import hashlib
 import json
 import math
 import os
+import struct
 import xml.sax.saxutils as sax
+import zlib
 from pathlib import Path
 
 import cairosvg
@@ -274,14 +285,30 @@ def map_widget_svg(x0, y0, w, h):
 # placed with <g transform="translate(x,y)">. No text inside any
 # scene: the pictures must read without words.
 
+def scene_tag(x, y, text, fill):
+    """Crisp data callout pill, sized to its measured text (9px bold).
+    Used by the v7 hero banners; every tag's text is a verified
+    17 November 2026 fact."""
+    fnt = font(SANS_B, 9)
+    w = tw(text, fnt) + 16
+    return (f'<rect x="{x:.0f}" y="{y:.0f}" width="{w:.0f}" height="18" '
+            f'rx="9" fill="{fill}"/>'
+            f'<text x="{x + 8:.0f}" y="{y + 12.5:.0f}" '
+            f'font-family="Liberation Sans" font-weight="bold" '
+            f'font-size="9" fill="{PAPER}">{esc(text)}</text>')
+
+
 def scene_manila():
-    """H1 — ASEAN summit hall, flags, protest crowd (warm amber sky)."""
+    """H1 — ASEAN summit hall, flags, protest crowd (warm amber sky).
+    v7: data callout tag top-left, flags re-spaced right of it, sun
+    tucked into the top-right corner, sky highlight band + darker
+    ground band + horizon ticks for depth."""
     flags = "".join(
         f'<line x1="{x}" y1="10" x2="{x}" y2="34" stroke="{INK}" '
         f'stroke-width="2"/>'
         f'<rect x="{x}" y="8" width="16" height="10" fill="{c}"/>'
-        for x, c in ((70, CRIMSON), (115, SLATE), (160, TEAL),
-                     (205, GOLD), (250, PAPER)))
+        for x, c in ((170, CRIMSON), (198, SLATE), (226, TEAL),
+                     (254, GOLD), (282, PAPER)))
     heads = "".join(
         f'<circle cx="{x}" cy="95" r="5.5" fill="{INK}"/>'
         for x in range(16, 312, 30))
@@ -291,7 +318,12 @@ def scene_manila():
         for x in (46, 136, 226, 296))
     return f"""
 <rect x="0" y="0" width="318" height="104" fill="{AMBER}"/>
-<circle cx="272" cy="24" r="13" fill="{CRIMSON}"/>
+<rect x="0" y="0" width="318" height="6" fill="{PAPER}" opacity="0.25"/>
+<rect x="0" y="90" width="318" height="14" fill="#E3B968"/>
+<line x1="0" y1="90" x2="40" y2="90" stroke="{INK}" stroke-width="1" opacity="0.25"/>
+<line x1="278" y1="90" x2="318" y2="90" stroke="{INK}" stroke-width="1" opacity="0.25"/>
+<circle cx="308" cy="14" r="8" fill="{CRIMSON}"/>
+{scene_tag(8, 8, "MANILA \u00b7 ~2,000 PROTESTERS", INK)}
 {flags}
 <polygon points="40,58 159,30 278,58" fill="{INK}"/>
 <rect x="40" y="54" width="238" height="5" fill="{PAPER}"/>
@@ -308,14 +340,21 @@ def scene_manila():
 
 
 def scene_kerch():
-    """H2 — fractured bridge span over dark waves, smoke plume."""
+    """H2 — fractured bridge span over dark waves, smoke plume.
+    v7: data callout tag top-left, stars re-spaced right of it,
+    smoke shifted right of the tag, horizon line at the waterline,
+    sky highlight + deep-water shade for depth."""
     stars = "".join(
         f'<circle cx="{x}" cy="{y}" r="1.5" fill="{PAPER}"/>'
-        for x, y in ((24, 12), (120, 8), (200, 14), (292, 10), (160, 6)))
+        for x, y in ((170, 7), (205, 12), (225, 6), (240, 9), (265, 16)))
     return f"""
 <rect x="0" y="0" width="318" height="70" fill="{INK}"/>
+<rect x="0" y="0" width="318" height="5" fill="{PAPER}" opacity="0.07"/>
+{scene_tag(8, 6, "SPAN COLLAPSED \u00b7 2 KILLED", CRIMSON)}
 {stars}
 <rect x="0" y="70" width="318" height="34" fill="{SLATE}"/>
+<line x1="0" y1="70" x2="318" y2="70" stroke="{PAPER}" stroke-width="1.5" opacity="0.85"/>
+<rect x="0" y="96" width="318" height="8" fill="#0C1626" opacity="0.55"/>
 <polyline points="0,84 20,80 40,84 60,80 80,84 100,80 120,84 140,80
  160,84 180,80 200,84 220,80 240,84 260,80 280,84 300,80 318,84"
  fill="none" stroke="{PAPER}" stroke-width="2" opacity="0.7"/>
@@ -334,26 +373,35 @@ def scene_kerch():
 </g>
 <polyline points="140,50 148,58 152,50 158,60 164,52 170,58 178,50"
  fill="none" stroke="{CRIMSON}" stroke-width="4"/>
-<circle cx="152" cy="34" r="9" fill="{GREY}" opacity="0.9"/>
-<circle cx="166" cy="26" r="11" fill="{GREY}" opacity="0.9"/>
-<circle cx="158" cy="16" r="8" fill="{GREY}" opacity="0.9"/>
+<circle cx="170" cy="36" r="9" fill="{GREY}" opacity="0.9"/>
+<circle cx="183" cy="28" r="11" fill="{GREY}" opacity="0.9"/>
+<circle cx="176" cy="18" r="8" fill="{GREY}" opacity="0.9"/>
 <polygon points="288,8 300,28 276,28" fill="{CRIMSON}"/>
 <rect x="287" y="14" width="2" height="7" fill="{PAPER}"/>
 <circle cx="288" cy="24" r="1.2" fill="{PAPER}"/>"""
 
 
 def scene_hormuz():
-    """H3 — oil tanker in the strait, blast star, alert indicators."""
+    """H3 — oil tanker in the strait, blast star, alert indicators.
+    v7: data callout tag top-right, horizon line at the sky/sea
+    boundary, sky highlight + deep-water shade, stern wake for
+    depth."""
     return f"""
 <rect x="0" y="0" width="318" height="42" fill="{OCEAN}"/>
+<rect x="0" y="0" width="318" height="6" fill="{PAPER}" opacity="0.3"/>
+{scene_tag(193, 8, "TANKER HIT \u00b7 HORMUZ", CRIMSON)}
 <circle cx="40" cy="20" r="10" fill="{AMBER}"/>
 <rect x="0" y="42" width="318" height="62" fill="{TEAL}"/>
+<line x1="0" y1="42" x2="318" y2="42" stroke="{PAPER}" stroke-width="1.5" opacity="0.9"/>
+<rect x="0" y="97" width="318" height="7" fill="{INK}" opacity="0.12"/>
 <polyline points="0,56 20,52 40,56 60,52 80,56 100,52 120,56 140,52
  160,56 180,52 200,56 220,52 240,56 260,52 280,56 300,52 318,56"
  fill="none" stroke="{PAPER}" stroke-width="1.5" opacity="0.5"/>
 <polyline points="0,96 20,92 40,96 60,92 80,96 100,92 120,96 140,92
  160,96 180,92 200,96 220,92 240,96 260,92 280,96 300,92 318,96"
  fill="none" stroke="{PAPER}" stroke-width="1.5" opacity="0.5"/>
+<polyline points="8,90 20,88 32,90" fill="none" stroke="{PAPER}" stroke-width="1.5" opacity="0.6"/>
+<polyline points="14,94 26,92 38,94" fill="none" stroke="{PAPER}" stroke-width="1.5" opacity="0.6"/>
 <rect x="210" y="58" width="70" height="10" fill="{SLATE}"/>
 <rect x="252" y="50" width="16" height="8" fill="{SLATE}"/>
 <polygon points="36,68 282,68 266,88 52,88" fill="{INK}"/>
@@ -667,9 +715,9 @@ HEROES = [
 ]
 
 STORIES = [
-    (1, "TRADE", SLATE, "China\u2013Canada Cut $280M Tariffs",
-     "Ottawa and Beijing agree C$400M in tariff cuts on pork and "
-     "seafood ahead of APEC in Shenzhen."),
+    (1, "TRADE", SLATE, "China\u2013Canada Cut C$400M Tariffs",
+     "Ottawa and Beijing agree C$400M (~US$280M) in tariff cuts on "
+     "pork and seafood ahead of APEC in Shenzhen."),
     (2, "TECH", TEAL, "US Curbs AI Chips in 5 Nations",
      "Licences now required for advanced chips to five nations; "
      "Megaspeed faces a criminal probe."),
@@ -705,15 +753,22 @@ STORIES = [
      "hunger; IOM is $173M short."),
 ]
 
-# (big number, label, colour) for the Key Themes panel.
+# (big number, label, colour) for the Key Themes panel, in
+# column-major order: col 1 C$400M / 49th, col 2 $93.14 / 5,
+# col 3 2029 / $120B/yr. Every figure matches the cards above.
 STATS = [
-    ("$280M", "China\u2013Canada tariff cuts", CRIMSON),
-    ("$93.14", "Brent crude, Tuesday close", CRIMSON),
+    ("C$400M", "China\u2013Canada tariff cuts", CRIMSON),
+    ("$93.14", "Brent crude, Tuesday close", TEAL),
+    ("2029", "NHS\u2013Palantir contract ends", CRIMSON),
     ("49th", "ASEAN Summit in Manila", INK),
     ("5", "Nations under AI chip curbs", INK),
-    ("2029", "NHS\u2013Palantir contract ends", INK),
     ("$120B/yr", "COP31 adaptation goal by 2035", TEAL),
 ]
+
+# Card 01's body is one line longer than the others once the
+# (~US$280M) conversion is added; 12.5pt keeps it at 3 lines
+# (measured: 183/200/201px at 12.5pt vs 4 lines at 13pt).
+BODY_SIZE = {1: 12.5}
 
 
 def tag_pill(x, y, tag, color):
@@ -788,7 +843,7 @@ def grid_card(x, y, w, h, num, tag, color, head, body, warnings):
             f'<text x="{x + 64:.0f}" y="{y + 48 + i * 17:.0f}" '
             f'font-family="Liberation Sans" font-weight="bold" '
             f'font-size="15" fill="{INK}">{esc(line)}</text>')
-    body_fnt = font(SANS, 13)
+    body_fnt = font(SANS, BODY_SIZE.get(num, 13))
     body_lines = wrap(body, body_fnt, w - 20)
     if len(body_lines) > 3:
         warnings.append(f"card {num:02d} body wraps to "
@@ -796,14 +851,17 @@ def grid_card(x, y, w, h, num, tag, color, head, body, warnings):
     for i, line in enumerate(body_lines[:3]):
         out.append(
             f'<text x="{x + 10:.0f}" y="{y + 96 + i * 15:.0f}" '
-            f'font-family="Liberation Sans" font-size="13" '
+            f'font-family="Liberation Sans" '
+            f'font-size="{BODY_SIZE.get(num, 13)}" '
             f'fill="{INK}">{esc(line)}</text>')
     return "\n".join(out)
 
 
 def key_themes_panel(x, y, w, h):
-    """Key Themes & Daily Numbers: 6 verified stats + closing line +
-    footer."""
+    """Key Themes & Daily Numbers: balanced 3-column x 2-row
+    executive stat grid with subtle divider rules, closing line +
+    footer. v7: the two-column layout left a wide empty gap in the
+    middle; three columns fill it."""
     out = []
     out.append(f'<rect x="{x:.0f}" y="{y:.0f}" width="{w:.0f}" '
                f'height="{h:.0f}" fill="{CARD}" stroke="{INK}" '
@@ -815,15 +873,24 @@ def key_themes_panel(x, y, w, h):
         f'font-family="Liberation Sans" font-weight="bold" '
         f'font-size="15" fill="{INK}">'
         f'KEY THEMES &amp; DAILY NUMBERS</text>')
+    col_w = (w - 32) / 3
+    for cx in (x + 16 + col_w, x + 16 + 2 * col_w):
+        out.append(f'<line x1="{cx:.1f}" y1="{y + 46:.0f}" '
+                   f'x2="{cx:.1f}" y2="{y + 136:.0f}" '
+                   f'stroke="{GRAT}" stroke-width="1"/>')
+    out.append(f'<line x1="{x + 16:.0f}" y1="{y + 89:.0f}" '
+               f'x2="{x + w - 16:.0f}" y2="{y + 89:.0f}" '
+               f'stroke="{GRAT}" stroke-width="1"/>')
     for i, (num, label, color) in enumerate(STATS):
-        cx = x + 16 + (i % 2) * 288
-        ry = y + 34 + (i // 2) * 40
+        col, row = i % 3, i // 3
+        cx = x + 16 + col * col_w
+        ry = y + 40 + row * 56
         out.append(
-            f'<text x="{cx:.0f}" y="{ry + 19:.0f}" '
+            f'<text x="{cx:.0f}" y="{ry + 24:.0f}" '
             f'font-family="Liberation Sans" font-weight="bold" '
-            f'font-size="19" fill="{color}">{esc(num)}</text>')
+            f'font-size="21" fill="{color}">{esc(num)}</text>')
         out.append(
-            f'<text x="{cx:.0f}" y="{ry + 35:.0f}" '
+            f'<text x="{cx:.0f}" y="{ry + 42:.0f}" '
             f'font-family="Liberation Sans" font-size="11" '
             f'fill="{SLATE}">{esc(label)}</text>')
     out.append(f'<line x1="{x + 16:.0f}" y1="{y + 158:.0f}" '
@@ -841,6 +908,44 @@ def key_themes_panel(x, y, w, h):
         f'font-weight="bold" font-size="11" fill="{INK}">'
         f'@seannbeez \u00b7 17 November 2026</text>')
     return "\n".join(out)
+
+
+def zopfli_pass(path):
+    """Lossless re-compression of the PNG's IDAT with Zopfli: the
+    filtered scanlines are re-compressed with a better DEFLATE
+    search, so the file shrinks with identical pixels. Returns the
+    new size, or None when the zopfli module is unavailable (the
+    caller then falls back to the palette pass). Deterministic."""
+    try:
+        import zopfli.zlib as zz
+    except ImportError:
+        return None
+    data = path.read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    pos, chunks, idat = 8, [], b""
+    while pos < len(data):
+        ln, typ = struct.unpack(">I4s", data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + ln]
+        chunks.append((typ, body))
+        if typ == b"IDAT":
+            idat += body
+        pos += 12 + ln
+    raw = zlib.decompress(idat)
+    comp = zz.compress(raw, numiterations=15)
+    out = bytearray(data[:8])
+    for typ, body in chunks:
+        if typ == b"IDAT":
+            continue
+        out += struct.pack(">I4s", len(body), typ) + body
+        out += struct.pack(">I", zlib.crc32(typ + body) & 0xffffffff)
+        if typ == b"IHDR":
+            for i in range(0, len(comp), 65536):
+                piece = comp[i:i + 65536]
+                out += struct.pack(">I4s", len(piece), b"IDAT") + piece
+                out += struct.pack(
+                    ">I", zlib.crc32(b"IDAT" + piece) & 0xffffffff)
+    path.write_bytes(bytes(out))
+    return len(out)
 
 
 # ------------------------------------------------------------------- poster
@@ -911,14 +1016,20 @@ def main():
     img.save(HERE / "entry.png", optimize=True)
     size_bytes = os.path.getsize(HERE / "entry.png")
     print(f"base render: {size_bytes} bytes")
-    if size_bytes > 245 * 1024:
+    if size_bytes > 240 * 1024:
+        # Lossless first: Zopfli re-compresses the same pixels.
+        zsize = zopfli_pass(HERE / "entry.png")
+        if zsize is not None:
+            size_bytes = zsize
+            print(f"zopfli render: {size_bytes} bytes")
+    if size_bytes > 240 * 1024:
         # Deterministic palette pass: flat vector art quantizes
         # cleanly to 256 colours; re-save and re-check.
         img = img.convert("P", palette=Image.ADAPTIVE, colors=256)
         img.save(HERE / "entry.png", optimize=True)
         size_bytes = os.path.getsize(HERE / "entry.png")
         print(f"palette 256 render: {size_bytes} bytes")
-    if size_bytes > 245 * 1024:
+    if size_bytes > 240 * 1024:
         img = Image.open(HERE / "entry.png").convert("RGB")
         img = img.convert("P", palette=Image.ADAPTIVE, colors=128)
         img.save(HERE / "entry.png", optimize=True)

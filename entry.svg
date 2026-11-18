@@ -9,8 +9,13 @@
 <rect x="24" y="144" width="318" height="208" fill="#FFFFFF" stroke="#14213D" stroke-width="1.5"/>
 <g transform="translate(24 144)">
 <rect x="0" y="0" width="318" height="104" fill="#F2C879"/>
-<circle cx="272" cy="24" r="13" fill="#C1121F"/>
-<line x1="70" y1="10" x2="70" y2="34" stroke="#14213D" stroke-width="2"/><rect x="70" y="8" width="16" height="10" fill="#C1121F"/><line x1="115" y1="10" x2="115" y2="34" stroke="#14213D" stroke-width="2"/><rect x="115" y="8" width="16" height="10" fill="#2B4162"/><line x1="160" y1="10" x2="160" y2="34" stroke="#14213D" stroke-width="2"/><rect x="160" y="8" width="16" height="10" fill="#1D6F72"/><line x1="205" y1="10" x2="205" y2="34" stroke="#14213D" stroke-width="2"/><rect x="205" y="8" width="16" height="10" fill="#E8B93C"/><line x1="250" y1="10" x2="250" y2="34" stroke="#14213D" stroke-width="2"/><rect x="250" y="8" width="16" height="10" fill="#FAF8F3"/>
+<rect x="0" y="0" width="318" height="6" fill="#FAF8F3" opacity="0.25"/>
+<rect x="0" y="90" width="318" height="14" fill="#E3B968"/>
+<line x1="0" y1="90" x2="40" y2="90" stroke="#14213D" stroke-width="1" opacity="0.25"/>
+<line x1="278" y1="90" x2="318" y2="90" stroke="#14213D" stroke-width="1" opacity="0.25"/>
+<circle cx="308" cy="14" r="8" fill="#C1121F"/>
+<rect x="8" y="8" width="150" height="18" rx="9" fill="#14213D"/><text x="16" y="20" font-family="Liberation Sans" font-weight="bold" font-size="9" fill="#FAF8F3">MANILA · ~2,000 PROTESTERS</text>
+<line x1="170" y1="10" x2="170" y2="34" stroke="#14213D" stroke-width="2"/><rect x="170" y="8" width="16" height="10" fill="#C1121F"/><line x1="198" y1="10" x2="198" y2="34" stroke="#14213D" stroke-width="2"/><rect x="198" y="8" width="16" height="10" fill="#2B4162"/><line x1="226" y1="10" x2="226" y2="34" stroke="#14213D" stroke-width="2"/><rect x="226" y="8" width="16" height="10" fill="#1D6F72"/><line x1="254" y1="10" x2="254" y2="34" stroke="#14213D" stroke-width="2"/><rect x="254" y="8" width="16" height="10" fill="#E8B93C"/><line x1="282" y1="10" x2="282" y2="34" stroke="#14213D" stroke-width="2"/><rect x="282" y="8" width="16" height="10" fill="#FAF8F3"/>
 <polygon points="40,58 159,30 278,58" fill="#14213D"/>
 <rect x="40" y="54" width="238" height="5" fill="#FAF8F3"/>
 <rect x="40" y="58" width="238" height="30" fill="#14213D"/>
@@ -31,8 +36,12 @@
 <rect x="353" y="144" width="318" height="208" fill="#FFFFFF" stroke="#14213D" stroke-width="1.5"/>
 <g transform="translate(353 144)">
 <rect x="0" y="0" width="318" height="70" fill="#14213D"/>
-<circle cx="24" cy="12" r="1.5" fill="#FAF8F3"/><circle cx="120" cy="8" r="1.5" fill="#FAF8F3"/><circle cx="200" cy="14" r="1.5" fill="#FAF8F3"/><circle cx="292" cy="10" r="1.5" fill="#FAF8F3"/><circle cx="160" cy="6" r="1.5" fill="#FAF8F3"/>
+<rect x="0" y="0" width="318" height="5" fill="#FAF8F3" opacity="0.07"/>
+<rect x="8" y="6" width="146" height="18" rx="9" fill="#C1121F"/><text x="16" y="18" font-family="Liberation Sans" font-weight="bold" font-size="9" fill="#FAF8F3">SPAN COLLAPSED · 2 KILLED</text>
+<circle cx="170" cy="7" r="1.5" fill="#FAF8F3"/><circle cx="205" cy="12" r="1.5" fill="#FAF8F3"/><circle cx="225" cy="6" r="1.5" fill="#FAF8F3"/><circle cx="240" cy="9" r="1.5" fill="#FAF8F3"/><circle cx="265" cy="16" r="1.5" fill="#FAF8F3"/>
 <rect x="0" y="70" width="318" height="34" fill="#2B4162"/>
+<line x1="0" y1="70" x2="318" y2="70" stroke="#FAF8F3" stroke-width="1.5" opacity="0.85"/>
+<rect x="0" y="96" width="318" height="8" fill="#0C1626" opacity="0.55"/>
 <polyline points="0,84 20,80 40,84 60,80 80,84 100,80 120,84 140,80
  160,84 180,80 200,84 220,80 240,84 260,80 280,84 300,80 318,84"
  fill="none" stroke="#FAF8F3" stroke-width="2" opacity="0.7"/>
@@ -51,9 +60,9 @@
 </g>
 <polyline points="140,50 148,58 152,50 158,60 164,52 170,58 178,50"
  fill="none" stroke="#C1121F" stroke-width="4"/>
-<circle cx="152" cy="34" r="9" fill="#8A94A6" opacity="0.9"/>
-<circle cx="166" cy="26" r="11" fill="#8A94A6" opacity="0.9"/>
-<circle cx="158" cy="16" r="8" fill="#8A94A6" opacity="0.9"/>
+<circle cx="170" cy="36" r="9" fill="#8A94A6" opacity="0.9"/>
+<circle cx="183" cy="28" r="11" fill="#8A94A6" opacity="0.9"/>
+<circle cx="176" cy="18" r="8" fill="#8A94A6" opacity="0.9"/>
 <polygon points="288,8 300,28 276,28" fill="#C1121F"/>
 <rect x="287" y="14" width="2" height="7" fill="#FAF8F3"/>
 <circle cx="288" cy="24" r="1.2" fill="#FAF8F3"/></g>
@@ -65,14 +74,20 @@
 <rect x="682" y="144" width="318" height="208" fill="#FFFFFF" stroke="#14213D" stroke-width="1.5"/>
 <g transform="translate(682 144)">
 <rect x="0" y="0" width="318" height="42" fill="#E3EEF5"/>
+<rect x="0" y="0" width="318" height="6" fill="#FAF8F3" opacity="0.3"/>
+<rect x="193" y="8" width="117" height="18" rx="9" fill="#C1121F"/><text x="201" y="20" font-family="Liberation Sans" font-weight="bold" font-size="9" fill="#FAF8F3">TANKER HIT · HORMUZ</text>
 <circle cx="40" cy="20" r="10" fill="#F2C879"/>
 <rect x="0" y="42" width="318" height="62" fill="#1D6F72"/>
+<line x1="0" y1="42" x2="318" y2="42" stroke="#FAF8F3" stroke-width="1.5" opacity="0.9"/>
+<rect x="0" y="97" width="318" height="7" fill="#14213D" opacity="0.12"/>
 <polyline points="0,56 20,52 40,56 60,52 80,56 100,52 120,56 140,52
  160,56 180,52 200,56 220,52 240,56 260,52 280,56 300,52 318,56"
  fill="none" stroke="#FAF8F3" stroke-width="1.5" opacity="0.5"/>
 <polyline points="0,96 20,92 40,96 60,92 80,96 100,92 120,96 140,92
  160,96 180,92 200,96 220,92 240,96 260,92 280,96 300,92 318,96"
  fill="none" stroke="#FAF8F3" stroke-width="1.5" opacity="0.5"/>
+<polyline points="8,90 20,88 32,90" fill="none" stroke="#FAF8F3" stroke-width="1.5" opacity="0.6"/>
+<polyline points="14,94 26,92 38,94" fill="none" stroke="#FAF8F3" stroke-width="1.5" opacity="0.6"/>
 <rect x="210" y="58" width="70" height="10" fill="#2B4162"/>
 <rect x="252" y="50" width="16" height="8" fill="#2B4162"/>
 <polygon points="36,68 282,68 266,88 52,88" fill="#14213D"/>
@@ -115,10 +130,10 @@
 <rect x="62" y="28" width="6" height="6" fill="#14213D"/>
 <rect x="32" y="56" width="6" height="6" fill="#14213D"/></g>
 <text x="88" y="410" font-family="Liberation Sans" font-weight="bold" font-size="15" fill="#14213D">China–Canada Cut</text>
-<text x="88" y="427" font-family="Liberation Sans" font-weight="bold" font-size="15" fill="#14213D">$280M Tariffs</text>
-<text x="34" y="458" font-family="Liberation Sans" font-size="13" fill="#14213D">Ottawa and Beijing agree C$400M in</text>
-<text x="34" y="473" font-family="Liberation Sans" font-size="13" fill="#14213D">tariff cuts on pork and seafood ahead</text>
-<text x="34" y="488" font-family="Liberation Sans" font-size="13" fill="#14213D">of APEC in Shenzhen.</text>
+<text x="88" y="427" font-family="Liberation Sans" font-weight="bold" font-size="15" fill="#14213D">C$400M Tariffs</text>
+<text x="34" y="458" font-family="Liberation Sans" font-size="12.5" fill="#14213D">Ottawa and Beijing agree C$400M</text>
+<text x="34" y="473" font-family="Liberation Sans" font-size="12.5" fill="#14213D">(~US$280M) in tariff cuts on pork and</text>
+<text x="34" y="488" font-family="Liberation Sans" font-size="12.5" fill="#14213D">seafood ahead of APEC in Shenzhen.</text>
 <rect x="270" y="362" width="236" height="140" fill="#FFFFFF" stroke="#14213D" stroke-width="1.5"/>
 <rect x="270" y="362" width="236" height="5" fill="#1D6F72"/>
 <text x="280" y="386" font-family="Liberation Sans" font-weight="bold" font-size="10" letter-spacing="1" fill="#1D6F72">02 · TECH</text>
@@ -772,18 +787,21 @@
 <rect x="424" y="812" width="576" height="192" fill="#FFFFFF" stroke="#14213D" stroke-width="1.5"/>
 <rect x="424" y="812" width="576" height="5" fill="#14213D"/>
 <text x="440" y="838" font-family="Liberation Sans" font-weight="bold" font-size="15" fill="#14213D">KEY THEMES &amp; DAILY NUMBERS</text>
-<text x="440" y="865" font-family="Liberation Sans" font-weight="bold" font-size="19" fill="#C1121F">$280M</text>
-<text x="440" y="881" font-family="Liberation Sans" font-size="11" fill="#2B4162">China–Canada tariff cuts</text>
-<text x="728" y="865" font-family="Liberation Sans" font-weight="bold" font-size="19" fill="#C1121F">$93.14</text>
-<text x="728" y="881" font-family="Liberation Sans" font-size="11" fill="#2B4162">Brent crude, Tuesday close</text>
-<text x="440" y="905" font-family="Liberation Sans" font-weight="bold" font-size="19" fill="#14213D">49th</text>
-<text x="440" y="921" font-family="Liberation Sans" font-size="11" fill="#2B4162">ASEAN Summit in Manila</text>
-<text x="728" y="905" font-family="Liberation Sans" font-weight="bold" font-size="19" fill="#14213D">5</text>
-<text x="728" y="921" font-family="Liberation Sans" font-size="11" fill="#2B4162">Nations under AI chip curbs</text>
-<text x="440" y="945" font-family="Liberation Sans" font-weight="bold" font-size="19" fill="#14213D">2029</text>
-<text x="440" y="961" font-family="Liberation Sans" font-size="11" fill="#2B4162">NHS–Palantir contract ends</text>
-<text x="728" y="945" font-family="Liberation Sans" font-weight="bold" font-size="19" fill="#1D6F72">$120B/yr</text>
-<text x="728" y="961" font-family="Liberation Sans" font-size="11" fill="#2B4162">COP31 adaptation goal by 2035</text>
+<line x1="621.3" y1="858" x2="621.3" y2="948" stroke="#C3D5E2" stroke-width="1"/>
+<line x1="802.7" y1="858" x2="802.7" y2="948" stroke="#C3D5E2" stroke-width="1"/>
+<line x1="440" y1="901" x2="984" y2="901" stroke="#C3D5E2" stroke-width="1"/>
+<text x="440" y="876" font-family="Liberation Sans" font-weight="bold" font-size="21" fill="#C1121F">C$400M</text>
+<text x="440" y="894" font-family="Liberation Sans" font-size="11" fill="#2B4162">China–Canada tariff cuts</text>
+<text x="621" y="876" font-family="Liberation Sans" font-weight="bold" font-size="21" fill="#1D6F72">$93.14</text>
+<text x="621" y="894" font-family="Liberation Sans" font-size="11" fill="#2B4162">Brent crude, Tuesday close</text>
+<text x="803" y="876" font-family="Liberation Sans" font-weight="bold" font-size="21" fill="#C1121F">2029</text>
+<text x="803" y="894" font-family="Liberation Sans" font-size="11" fill="#2B4162">NHS–Palantir contract ends</text>
+<text x="440" y="932" font-family="Liberation Sans" font-weight="bold" font-size="21" fill="#14213D">49th</text>
+<text x="440" y="950" font-family="Liberation Sans" font-size="11" fill="#2B4162">ASEAN Summit in Manila</text>
+<text x="621" y="932" font-family="Liberation Sans" font-weight="bold" font-size="21" fill="#14213D">5</text>
+<text x="621" y="950" font-family="Liberation Sans" font-size="11" fill="#2B4162">Nations under AI chip curbs</text>
+<text x="803" y="932" font-family="Liberation Sans" font-weight="bold" font-size="21" fill="#1D6F72">$120B/yr</text>
+<text x="803" y="950" font-family="Liberation Sans" font-size="11" fill="#2B4162">COP31 adaptation goal by 2035</text>
 <line x1="440" y1="970" x2="984" y2="970" stroke="#2B4162" stroke-width="1"/>
 <text x="440" y="984" font-family="Liberation Sans" font-style="italic" font-size="11" fill="#2B4162">15 stories · 3 flashpoints · 12 in depth — every figure verified from 17 Nov 2026 reporting.</text>
 <text x="984" y="999" text-anchor="end" font-family="Liberation Sans" font-weight="bold" font-size="11" fill="#14213D">@seannbeez · 17 November 2026</text>
